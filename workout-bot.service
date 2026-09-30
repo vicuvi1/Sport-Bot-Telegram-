@@ -1,0 +1,22 @@
+[Unit]
+Description=Telegram Workout Tracker Bot
+After=network.target
+
+[Service]
+Type=simple
+# Change to the Linux username running the bot (e.g. ubuntu, root, etc.)
+User=ubuntu
+# Directory where the bot is installed on your Ubuntu server
+WorkingDirectory=/opt/workout-bot
+# Path to Python in your virtual environment and the main script
+ExecStart=/opt/workout-bot/.venv/bin/python main.py
+
+# Automatically restart if it crashes or the server reboots
+Restart=always
+RestartSec=5s
+
+# Ensure logs are flushed immediately to journalctl
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
