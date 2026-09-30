@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from typing import Dict, Any, Optional
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 import config
@@ -62,8 +62,10 @@ def build_today_workout_view(workout: Dict[str, Any], date_str: str) -> tuple[st
         text += "\nTap an exercise to log reps, or tap *Complete All*:"
         keyboard.insert(0, [InlineKeyboardButton("⚡ Complete All as Scheduled", callback_data="complete_all")])
 
+    # NOTE: The Mini App (web_app) button was removed. Telegram requires an
+    # HTTPS web_app URL and rejects the whole message for http://localhost,
+    # which broke /today. A plain Refresh callback button is used instead.
     keyboard.append([
-        InlineKeyboardButton("📱 Open Mini App", web_app=WebAppInfo(url=config.WEBAPP_URL)),
         InlineKeyboardButton("🔄 Refresh", callback_data="refresh_today")
     ])
     keyboard.append([

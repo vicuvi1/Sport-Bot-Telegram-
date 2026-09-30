@@ -115,15 +115,27 @@ async def backup_command_handler(update: Update, context: ContextTypes.DEFAULT_T
         await update.message.reply_text(f"⚠️ Backup creation failed: {e}")
 
 async def global_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Catches unhandled errors gracefully so the bot remains resilient."""
-    logger.error(f"Exception while handling an update: {context.error}", exc_info=context.error)
+    """Catches unhandled errors gracefully so the bot remains resilient.
+
+    The full exception and traceback are always written to the log (and thus to
+    ``journalctl -u workout-bot``) via ``exc_info``. The user only ever receives
+    a short, friendly message that leaks no internal details.
+    """
+    err = context.error
+    logger.error(
+        "Exception while handling an update: %s: %s",
+        type(err).__name__ if err else "UnknownError",
+        err,
+        exc_info=err if err else True,
+    )
+
     if isinstance(update, Update) and update.effective_message:
         try:
             await update.effective_message.reply_text(
-                "⚠️ An unexpected error occurred while processing your request. Please try again."
+                "⚠️ Something went wrong while processing that request. Please try again."
             )
-        except Exception:
-            pass
+        except Exception as reply_err:
+            logger.error("Failed to deliver error notice to user: %s", reply_err, exc_info=reply_err)
 
 async def web_app_data_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles data sent back from the Telegram Mini App."""
@@ -154,18 +166,15 @@ async def web_app_data_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         logger.error(f"Error handling web_app_data: {e}")
 
 async def on_startup(application) -> None:
-    """Initializes APScheduler and starts the Telegram Mini App web server."""
-    # 1. Start APScheduler
+    """Initializes APScheduler on bot startup.
+
+    NOTE: The aiohttp Telegram Mini App web server is intentionally NOT started.
+    The Mini App is disabled (its UI needs a public HTTPS URL to be usable from
+    Telegram), so there is no reason to bind port 8080 or run an extra service.
+    Re-enable by starting ``webapp.server.start_webapp_server`` here if needed.
+    """
     scheduler = setup_scheduler(application.bot)
     application.bot_data["scheduler"] = scheduler
-
-    # 2. Start aiohttp Mini App server
-    try:
-        from webapp.server import start_webapp_server
-        runner = await start_webapp_server(host=config.WEBAPP_HOST, port=config.WEBAPP_PORT)
-        application.bot_data["webapp_runner"] = runner
-    except Exception as e:
-        logger.error(f"Failed to start Telegram Mini App web server: {e}")
 
 async def on_shutdown(application) -> None:
     """Cleans up background web server runner upon shutdown."""

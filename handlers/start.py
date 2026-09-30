@@ -1,5 +1,5 @@
 import logging
-from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ContextTypes
 
 import config
@@ -19,10 +19,16 @@ def is_authorized(update: Update) -> bool:
     return user.id == config.USER_ID
 
 def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
-    """Returns the persistent main menu reply keyboard with Telegram Mini App button."""
+    """Returns the persistent main menu reply keyboard.
+
+    NOTE: The Telegram Mini App (WebApp) button was intentionally removed.
+    Telegram only accepts HTTPS web_app URLs; a http://localhost URL makes
+    Telegram reject the whole message with
+    ``BadRequest: Keyboard button web app url ... only https links are allowed``,
+    which broke /start and /help entirely.
+    """
     keyboard = [
         [KeyboardButton("🏋️ Today's Workout"), KeyboardButton("📊 Progress")],
-        [KeyboardButton("📱 Open Workout App", web_app=WebAppInfo(url=config.WEBAPP_URL))],
         [KeyboardButton("📅 History"), KeyboardButton("⚙️ Settings")],
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
