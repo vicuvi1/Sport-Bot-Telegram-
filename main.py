@@ -15,7 +15,7 @@ import config
 from database import init_db, create_backup
 from scheduler import setup_scheduler
 from handlers.start import start_handler, help_handler, is_authorized
-from handlers.workout import today_handler, workout_callback_handler, custom_amount_message_handler
+from handlers.workout import today_handler, workout_callback_handler, custom_amount_message_handler, build_today_workout_view
 from handlers.stats import (
     stats_handler,
     stats_callback_handler,
@@ -24,6 +24,11 @@ from handlers.stats import (
     export_command_handler
 )
 from handlers.settings import settings_handler, settings_callback_handler, settings_text_input_handler
+from services.workout_service import (
+    get_or_create_daily_workout,
+    update_workout_item,
+    get_current_date_str
+)
 
 # Configure Windows console encoding for UTF-8 compatibility
 if hasattr(sys.stdout, "reconfigure"):
@@ -120,6 +125,54 @@ async def global_error_handler(update: object, context: ContextTypes.DEFAULT_TYP
         except Exception:
             pass
 
+async def web_app_data_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles data sent back from the Telegram Mini App."""
+    if not is_authorized(update):
+        return
+
+    try:
+        import json
+        raw_data = update.effective_message.web_app_data.data
+        logger.info(f"Received web_app_data: {raw_data}")
+        data = json.loads(raw_data)
+
+        # Sync items sent from Mini App
+        if "items" in data:
+            for it in data["items"]:
+                update_workout_item(it["id"], completed_reps=it.get("completed_reps"))
+
+        today_str = get_current_date_str()
+        workout = get_or_create_daily_workout(today_str)
+        text, markup = build_today_workout_view(workout, today_str)
+
+        await update.message.reply_text(
+            "📱 *Workout Synchronized via Mini App!*\n\nAll exercise progress has been saved to your local database.",
+            parse_mode="Markdown"
+        )
+        await update.message.reply_text(text, reply_markup=markup, parse_mode="Markdown")
+    except Exception as e:
+        logger.error(f"Error handling web_app_data: {e}")
+
+async def on_startup(application) -> None:
+    """Initializes APScheduler and starts the Telegram Mini App web server."""
+    # 1. Start APScheduler
+    scheduler = setup_scheduler(application.bot)
+    application.bot_data["scheduler"] = scheduler
+
+    # 2. Start aiohttp Mini App server
+    try:
+        from webapp.server import start_webapp_server
+        runner = await start_webapp_server(host=config.WEBAPP_HOST, port=config.WEBAPP_PORT)
+        application.bot_data["webapp_runner"] = runner
+    except Exception as e:
+        logger.error(f"Failed to start Telegram Mini App web server: {e}")
+
+async def on_shutdown(application) -> None:
+    """Cleans up background web server runner upon shutdown."""
+    runner = application.bot_data.get("webapp_runner")
+    if runner:
+        await runner.cleanup()
+
 def main() -> None:
     """Initializes and runs the workout tracker bot."""
     print("==================================================")
@@ -150,13 +203,15 @@ def main() -> None:
         print("!" * 58 + "\n")
         return
 
-    # 3. Build Telegram Application
+    # 3. Build Telegram Application with post_init and post_shutdown
     logger.info("Starting Telegram Bot Application...")
-    app = ApplicationBuilder().token(token).build()
-
-    # 4. Initialize Scheduler
-    scheduler = setup_scheduler(app.bot)
-    app.bot_data["scheduler"] = scheduler
+    app = (
+        ApplicationBuilder()
+        .token(token)
+        .post_init(on_startup)
+        .post_shutdown(on_shutdown)
+        .build()
+    )
 
     # 5. Register Command Handlers
     app.add_handler(CommandHandler("start", start_handler))
@@ -175,7 +230,8 @@ def main() -> None:
     app.add_handler(CallbackQueryHandler(stats_callback_handler, pattern=r"^stats_period:"))
     app.add_handler(CallbackQueryHandler(settings_callback_handler))
 
-    # 7. Register Text Message Router
+    # 7. Register Message Handlers
+    app.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, web_app_data_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_router))
 
     # 8. Register Error Handler

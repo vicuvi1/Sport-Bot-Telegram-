@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from typing import Dict, Any, Optional
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.ext import ContextTypes
 
 import config
@@ -63,9 +63,12 @@ def build_today_workout_view(workout: Dict[str, Any], date_str: str) -> tuple[st
         keyboard.insert(0, [InlineKeyboardButton("⚡ Complete All as Scheduled", callback_data="complete_all")])
 
     keyboard.append([
-        InlineKeyboardButton("⏱ 60s Rest", callback_data="start_timer:60:Rest"),
-        InlineKeyboardButton("⏱ 90s Rest", callback_data="start_timer:90:Rest"),
+        InlineKeyboardButton("📱 Open Mini App", web_app=WebAppInfo(url=config.WEBAPP_URL)),
         InlineKeyboardButton("🔄 Refresh", callback_data="refresh_today")
+    ])
+    keyboard.append([
+        InlineKeyboardButton("⏱ 60s Rest", callback_data="start_timer:60:Rest"),
+        InlineKeyboardButton("⏱ 90s Rest", callback_data="start_timer:90:Rest")
     ])
     return text, InlineKeyboardMarkup(keyboard)
 

@@ -1,5 +1,5 @@
 import logging
-from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
 from telegram.ext import ContextTypes
 
 import config
@@ -19,9 +19,10 @@ def is_authorized(update: Update) -> bool:
     return user.id == config.USER_ID
 
 def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
-    """Returns the persistent main menu reply keyboard."""
+    """Returns the persistent main menu reply keyboard with Telegram Mini App button."""
     keyboard = [
         [KeyboardButton("🏋️ Today's Workout"), KeyboardButton("📊 Progress")],
+        [KeyboardButton("📱 Open Workout App", web_app=WebAppInfo(url=config.WEBAPP_URL))],
         [KeyboardButton("📅 History"), KeyboardButton("⚙️ Settings")],
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)

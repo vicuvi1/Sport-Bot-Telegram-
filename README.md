@@ -78,6 +78,13 @@ Track lifetime fitness milestones with built-in badges:
 * **Weekly Automated Backups:** APScheduler sends a backup of `workout.db` to your Telegram chat every Sunday night.
 * **On-Demand Backup:** Download your database anytime via `/backup` or the Settings menu.
 
+### 8. 📱 Telegram Mini App (Web App Interface)
+* **Native Mobile Experience:** Clicking `📱 Open Workout App` in the main menu opens a dark-mode mobile interface directly inside Telegram.
+* **Animated Circular Progress Dial:** Real-time SVG circular meter displaying overall daily completion and streak flame.
+* **Interactive Exercise Cards:** Smooth cards with mini progress bars, fast `+5` / `+10` rep adjusters, and 1-tap completion.
+* **Built-in Stopwatch with Haptic Feedback:** Live countdown timer for plank/timed sets with vibrating haptic pulses (`Telegram.WebApp.HapticFeedback`).
+* **Instant Two-Way Sync:** Automatically syncs with the SQLite database via the embedded `aiohttp` REST API and `Telegram.WebApp.sendData`.
+
 ---
 
 ## 🏗 System Architecture
@@ -85,6 +92,10 @@ Track lifetime fitness milestones with built-in badges:
 ```mermaid
 flowchart TD
     User([Telegram User]) <-->|Authorized Message / Callback| Bot[python-telegram-bot App]
+    User <-->|Opens in Telegram| MiniApp[📱 Telegram Mini App UI]
+    MiniApp <-->|REST API / Static| WebServer[aiohttp Web Server]
+    WebServer <--> Services
+
     Bot --> Security{Is TELEGRAM_USER_ID?}
     Security -->|No| Drop[Ignore / Log]
     Security -->|Yes| Router[Message / Command Router]

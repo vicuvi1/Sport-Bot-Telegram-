@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Workout Tracker Mini App</title>
+  <!-- Telegram WebApp SDK -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    :root {
+      --bg-color: var(--tg-theme-bg-color, #0e1621);
+      --secondary-bg: var(--tg-theme-secondary-bg-color, #17212b);
+      --card-bg: #1e2c3a;
+      --card-border: #2b394a;
+      --text-color: var(--tg-theme-text-color, #ffffff);
+      --hint-color: var(--tg-theme-hint-color, #7f91a4);
+      --accent: var(--tg-theme-button-color, #2481cc);
+      --accent-text: var(--tg-theme-button-text-color, #ffffff);
+      --success: #2ecc71;
+      --warning: #f39c12;
+      --danger: #e74c3c;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+
+    body {
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      padding: 16px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+    }
+
+    /* Top Stats Card */
+    .dashboard-header {
+      background: linear-gradient(135deg, #1e2c3a, #16222f);
+      border-radius: 20px;
+      padding: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border: 1px solid var(--card-border);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+      margin-bottom: 20px;
+    }
+
+    .header-info h2 {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+
+    .header-info p {
+      font-size: 13px;
+      color: var(--hint-color);
+    }
+
+    .streak-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: rgba(243, 156, 18, 0.15);
+      color: #f39c12;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 12px;
+      margin-top: 8px;
+    }
+
+    /* Circular Progress Dial */
+    .dial-container {
+      position: relative;
+      width: 90px;
+      height: 90px;
+    }
+
+    .dial-svg {
+      transform: rotate(-90deg);
+      width: 90px;
+      height: 90px;
+    }
+
+    .dial-bg {
+      fill: none;
+      stroke: rgba(255, 255, 255, 0.08);
+      stroke-width: 8;
+    }
+
+    .dial-progress {
+      fill: none;
+      stroke: var(--success);
+      stroke-width: 8;
+      stroke-linecap: round;
+      stroke-dasharray: 251.2;
+      stroke-dashoffset: 251.2;
+      transition: stroke-dashoffset 0.6s cubic-bezier(0.4, 0, 0.2, 1), stroke 0.3s;
+    }
+
+    .dial-text {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 17px;
+      font-weight: 700;
+      color: var(--text-color);
+    }
+
+    /* Exercise Section */
+    .section-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--hint-color);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .exercise-list {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      margin-bottom: 90px;
+    }
+
+    .exercise-card {
+      background: var(--card-bg);
+      border-radius: 18px;
+      border: 1px solid var(--card-border);
+      padding: 16px;
+      transition: transform 0.15s ease, border-color 0.2s;
+    }
+
+    .exercise-card.completed {
+      border-color: rgba(46, 204, 113, 0.4);
+      background: linear-gradient(145deg, #1e2c3a, #1a332a);
+    }
+
+    .card-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    .ex-title {
+      font-size: 17px;
+      font-weight: 600;
+    }
+
+    .ex-status-pill {
+      font-size: 12px;
+      font-weight: 600;
+      padding: 4px 8px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--hint-color);
+    }
+
+    .exercise-card.completed .ex-status-pill {
+      background: rgba(46, 204, 113, 0.2);
+      color: var(--success);
+    }
+
+    /* Mini Progress Bar inside Card */
+    .bar-wrapper {
+      height: 8px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 6px;
+      overflow: hidden;
+      margin-bottom: 12px;
+    }
+
+    .bar-fill {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 6px;
+      transition: width 0.35s ease;
+    }
+
+    .exercise-card.completed .bar-fill {
+      background: var(--success);
+    }
+
+    .card-counts {
+      display: flex;
+      justify-content: space-between;
+      font-size: 13px;
+      color: var(--hint-color);
+      margin-bottom: 14px;
+    }
+
+    .card-counts strong {
+      color: var(--text-color);
+      font-size: 15px;
+    }
+
+    /* Action Buttons */
+    .button-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+    }
+
+    .btn {
+      background: rgba(255, 255, 255, 0.07);
+      color: var(--text-color);
+      border: none;
+      padding: 10px 4px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s, transform 0.1s;
+    }
+
+    .btn:active {
+      transform: scale(0.95);
+      background: rgba(255, 255, 255, 0.15);
+    }
+
+    .btn.btn-complete {
+      grid-column: span 2;
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .btn.btn-complete.done {
+      background: var(--success);
+    }
+
+    .btn.btn-timer {
+      grid-column: span 2;
+      background: rgba(243, 156, 18, 0.2);
+      color: #f39c12;
+    }
+
+    /* Fixed Bottom Action Bar */
+    .bottom-bar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: rgba(23, 33, 43, 0.95);
+      backdrop-filter: blur(12px);
+      border-top: 1px solid var(--card-border);
+      padding: 12px 16px;
+      display: flex;
+      gap: 12px;
+      z-index: 100;
+    }
+
+    .btn-main {
+      flex: 1;
+      padding: 14px;
+      border-radius: 14px;
+      font-size: 15px;
+      font-weight: 700;
+      border: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: transform 0.1s;
+    }
+
+    .btn-main:active {
+      transform: scale(0.97);
+    }
+
+    .btn-complete-all {
+      background: linear-gradient(135deg, #2481cc, #1d6fa5);
+      color: #fff;
+    }
+
+    .btn-save {
+      background: var(--success);
+      color: #fff;
+    }
+
+    /* Toast Notification */
+    .toast {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-100px);
+      background: rgba(30, 44, 58, 0.95);
+      border: 1px solid var(--card-border);
+      color: #fff;
+      padding: 12px 20px;
+      border-radius: 25px;
+      font-size: 14px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+      transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      z-index: 999;
+    }
+
+    .toast.show {
+      transform: translateX(-50%) translateY(0);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Dashboard Header with Circular Progress Ring -->
+  <div class="dashboard-header">
+    <div class="header-info">
+      <h2 id="workout-date">Today's Workout</h2>
+      <p id="workout-status">In Progress</p>
+      <div class="streak-badge">
+        <span>🔥</span> <span id="streak-text">0 Days Streak</span>
+      </div>
+    </div>
+    <div class="dial-container">
+      <svg class="dial-svg" viewBox="0 0 90 90">
+        <circle class="dial-bg" cx="45" cy="45" r="40" />
+        <circle id="progress-dial" class="dial-progress" cx="45" cy="45" r="40" />
+      </svg>
+      <div id="dial-pct" class="dial-text">0%</div>
+    </div>
+  </div>
+
+  <!-- Exercises List -->
+  <div class="section-title">
+    <span>Your Targets</span>
+    <span id="completed-count">0/4 Done</span>
+  </div>
+
+  <div id="exercise-list" class="exercise-list">
+    <!-- Populated dynamically via JS -->
+  </div>
+
+  <!-- Bottom Floating Action Bar -->
+  <div class="bottom-bar">
+    <button class="btn-main btn-complete-all" onclick="handleCompleteAll()">
+      ⚡ Complete All
+    </button>
+    <button class="btn-main btn-save" onclick="handleSaveAndSync()">
+      ✅ Save & Close
+    </button>
+  </div>
+
+  <div id="toast" class="toast">⚡ All targets completed!</div>
+
+  <script>
+    // Initialize Telegram WebApp SDK
+    const tg = window.Telegram?.WebApp;
+    if (tg) {
+      tg.ready();
+      tg.expand();
+      try {
+        tg.setHeaderColor(getComputedStyle(document.documentElement).getPropertyValue('--bg-color'));
+      } catch (e) {}
+    }
+
+    function triggerHaptic(type = 'medium') {
+      if (tg?.HapticFeedback) {
+        if (type === 'success') tg.HapticFeedback.notificationOccurred('success');
+        else if (type === 'light') tg.HapticFeedback.impactOccurred('light');
+        else tg.HapticFeedback.impactOccurred('medium');
+      }
+    }
+
+    function showToast(text) {
+      const toast = document.getElementById('toast');
+      toast.innerText = text;
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 2200);
+    }
+
+    // Default state fallback for standalone browser preview
+    let workoutData = {
+      date: new Date().toISOString().split('T')[0],
+      status: 'pending',
+      streak: 7,
+      items: [
+        { id: 1, exercise_name: 'Push-ups', target_reps: 50, completed_reps: 0, unit: 'reps', status: 'pending' },
+        { id: 2, exercise_name: 'Squats', target_reps: 50, completed_reps: 0, unit: 'reps', status: 'pending' },
+        { id: 3, exercise_name: 'Sit-ups', target_reps: 30, completed_reps: 0, unit: 'reps', status: 'pending' },
+        { id: 4, exercise_name: 'Plank', target_reps: 60, completed_reps: 0, unit: 'sec', status: 'pending' }
+      ]
+    };
+
+    // Load from backend REST API
+    async function loadWorkout() {
+      try {
+        const res = await fetch('/api/workout');
+        if (res.ok) {
+          workoutData = await res.json();
+        }
+      } catch (err) {
+        console.log('Running standalone or offline:', err);
+      }
+      renderApp();
+    }
+
+    function renderApp() {
+      document.getElementById('workout-date').innerText = `Today (${workoutData.date})`;
+      document.getElementById('streak-text').innerText = `${workoutData.streak || 0} Days Streak`;
+
+      let totalTarget = 0;
+      let totalCompleted = 0;
+      let itemsDone = 0;
+
+      const container = document.getElementById('exercise-list');
+      container.innerHTML = '';
+
+      workoutData.items.forEach(item => {
+        totalTarget += item.target_reps;
+        totalCompleted += Math.min(item.target_reps, item.completed_reps);
+        const isDone = item.status === 'completed' || item.completed_reps >= item.target_reps;
+        if (isDone) itemsDone++;
+
+        const pct = Math.min(100, Math.round((item.completed_reps / item.target_reps) * 100));
+
+        const card = document.createElement('div');
+        card.className = `exercise-card ${isDone ? 'completed' : ''}`;
+
+        const isTimer = item.unit === 'sec' || item.exercise_name.toLowerCase().includes('plank');
+
+        card.innerHTML = `
+          <div class="card-top">
+            <span class="ex-title">${item.exercise_name}</span>
+            <span class="ex-status-pill">${isDone ? 'Done ✅' : pct + '%'}</span>
+          </div>
+          <div class="bar-wrapper">
+            <div class="bar-fill" style="width: ${pct}%"></div>
+          </div>
+          <div class="card-counts">
+            <span>Completed: <strong>${item.completed_reps}</strong> ${item.unit}</span>
+            <span>Target: <strong>${item.target_reps}</strong> ${item.unit}</span>
+          </div>
+          <div class="button-grid">
+            <button class="btn btn-complete ${isDone ? 'done' : ''}" onclick="completeItem(${item.id})">
+              ${isDone ? '✅ Finished' : '✅ Done (' + item.target_reps + ')'}
+            </button>
+            <button class="btn" onclick="adjustReps(${item.id}, 5)">+5</button>
+            <button class="btn" onclick="adjustReps(${item.id}, 10)">+10</button>
+            <button class="btn" onclick="adjustReps(${item.id}, -5)">-5</button>
+            ${isTimer ? `
+              <button class="btn btn-timer" onclick="startTimer(this, ${item.id}, ${item.target_reps})">
+                ⏱ Start ${item.target_reps}s Timer
+              </button>
+            ` : ''}
+          </div>
+        `;
+        container.appendChild(card);
+      });
+
+      const overallPct = totalTarget > 0 ? Math.round((totalCompleted / totalTarget) * 100) : 0;
+      const allComplete = itemsDone === workoutData.items.length && workoutData.items.length > 0;
+
+      // Update Circular Progress Dial
+      const circle = document.getElementById('progress-dial');
+      const circumference = 2 * Math.PI * 40; // 251.2
+      const offset = circumference - (overallPct / 100) * circumference;
+      circle.style.strokeDashoffset = offset;
+      document.getElementById('dial-pct').innerText = `${overallPct}%`;
+      document.getElementById('completed-count').innerText = `${itemsDone}/${workoutData.items.length} Done`;
+      document.getElementById('workout-status').innerText = allComplete ? '🎉 Fully Completed!' : 'In Progress';
+    }
+
+    async function adjustReps(itemId, delta) {
+      triggerHaptic('light');
+      const item = workoutData.items.find(i => i.id === itemId);
+      if (!item) return;
+
+      item.completed_reps = Math.max(0, item.completed_reps + delta);
+      if (item.completed_reps >= item.target_reps) item.status = 'completed';
+      renderApp();
+
+      // Sync with REST API
+      try {
+        await fetch('/api/workout/item', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ item_id: itemId, delta_reps: delta })
+        });
+      } catch (e) {}
+    }
+
+    async function completeItem(itemId) {
+      triggerHaptic('success');
+      const item = workoutData.items.find(i => i.id === itemId);
+      if (!item) return;
+
+      item.completed_reps = item.target_reps;
+      item.status = 'completed';
+      renderApp();
+      showToast(`✅ ${item.exercise_name} logged!`);
+
+      try {
+        await fetch('/api/workout/item', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ item_id: itemId, completed_reps: item.target_reps })
+        });
+      } catch (e) {}
+    }
+
+    async function handleCompleteAll() {
+      triggerHaptic('success');
+      workoutData.items.forEach(i => {
+        i.completed_reps = i.target_reps;
+        i.status = 'completed';
+      });
+      workoutData.status = 'completed';
+      renderApp();
+      showToast('⚡ All exercises completed!');
+
+      try {
+        await fetch('/api/workout/complete_all', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        });
+      } catch (e) {}
+    }
+
+    function startTimer(btn, itemId, seconds) {
+      triggerHaptic('medium');
+      let remaining = seconds;
+      btn.disabled = true;
+      const originalText = btn.innerText;
+
+      const interval = setInterval(() => {
+        remaining--;
+        btn.innerText = `⏱ ${remaining}s remaining...`;
+        if (remaining <= 0) {
+          clearInterval(interval);
+          btn.innerText = originalText;
+          btn.disabled = false;
+          completeItem(itemId);
+          triggerHaptic('success');
+          showToast(`🔔 Time's up! Logged ${seconds}s!`);
+        }
+      }, 1000);
+    }
+
+    function handleSaveAndSync() {
+      triggerHaptic('success');
+      if (tg) {
+        tg.sendData(JSON.stringify({
+          action: 'sync_workout',
+          items: workoutData.items
+        }));
+        tg.close();
+      } else {
+        showToast('✅ Progress Saved!');
+      }
+    }
+
+    // Initial load
+    loadWorkout();
+  </script>
+</body>
+</html>

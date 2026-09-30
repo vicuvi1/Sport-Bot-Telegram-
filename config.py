@@ -27,3 +27,13 @@ DB_PATH = DATA_DIR / "workout.db"
 
 BACKUP_DIR = BASE_DIR / "backups"
 BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+
+# Telegram Mini App web server settings
+WEBAPP_HOST = os.getenv("WEBAPP_HOST", "0.0.0.0").strip()
+try:
+    WEBAPP_PORT = int(os.getenv("WEBAPP_PORT", "8080").strip())
+except ValueError:
+    WEBAPP_PORT = 8080
+WEBAPP_URL = os.getenv("WEBAPP_URL", f"http://localhost:{WEBAPP_PORT}").strip()
+WEBAPP_DIR = BASE_DIR / "webapp"
+
