@@ -138,12 +138,26 @@ async def workout_callback_handler(update: Update, context: ContextTypes.DEFAULT
 
     query = update.callback_query
     data = query.data
+
+    # --- Acknowledge the click IMMEDIATELY, before any database work, so the
+    # Telegram loading spinner disappears instantly. Exactly ONE answer() call
+    # is made per callback (never twice).
+    if data == "complete_all":
+        await query.answer("⚡ All exercises logged as completed! Great workout!", show_alert=True)
+    elif data == "snooze_reminder":
+        await query.answer("💤 Reminder snoozed for 60 minutes.", show_alert=True)
+    elif data.startswith("start_timer:"):
+        timer_parts = data.split(":")
+        timer_label = timer_parts[2] if len(timer_parts) > 2 else "Timer"
+        await query.answer(f"⏱ {timer_label} timer started ({timer_parts[1]}s). You will be notified when it expires!")
+    else:
+        await query.answer()
+
     today_str = get_current_date_str()
 
     if data == "complete_all":
         workout = get_or_create_daily_workout(today_str)
         updated_workout, progressions = complete_all_exercises_for_workout(workout["id"])
-        await query.answer("⚡ All exercises logged as completed! Great workout!", show_alert=True)
 
         if progressions:
             for prog in progressions:
@@ -161,16 +175,12 @@ async def workout_callback_handler(update: Update, context: ContextTypes.DEFAULT
         parts = data.split(":")
         secs = int(parts[1])
         label = parts[2] if len(parts) > 2 else "Timer"
-        await query.answer(f"⏱ {label} timer started ({secs}s). You will be notified when it expires!")
         asyncio.create_task(run_timer_alert(context.bot, query.from_user.id, secs, label))
         return
 
     if data == "snooze_reminder":
-        await query.answer("💤 Reminder snoozed for 60 minutes.", show_alert=True)
         asyncio.create_task(run_timer_alert(context.bot, query.from_user.id, 3600, "Snoozed Workout Reminder"))
         return
-
-    await query.answer()
 
     if data == "refresh_today":
         workout = get_or_create_daily_workout(today_str)
@@ -245,6 +255,8 @@ async def workout_callback_handler(update: Update, context: ContextTypes.DEFAULT
         )
         await query.message.reply_text(prompt_text, parse_mode="Markdown")
         return
+
+    logger.warning("workout_callback_handler received an unrouted callback_data=%r", data)
 
 async def custom_amount_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     """Handles text message input when the user is prompted to enter an exact completion amount."""

@@ -1,5 +1,6 @@
 import sys
 import logging
+import time
 from pathlib import Path
 from telegram import Update
 from telegram.ext import (
@@ -182,6 +183,74 @@ async def on_shutdown(application) -> None:
     if runner:
         await runner.cleanup()
 
+# ---------------------------------------------------------------------------
+# Callback routing
+# ---------------------------------------------------------------------------
+# Every feature has an explicit, non-overlapping callback namespace. There is
+# deliberately NO generic catch-all CallbackQueryHandler: an unmatched callback
+# must never be silently swallowed by another feature's handler.
+WORKOUT_CALLBACK_PATTERN = (
+    r"^(ex_(view|done|skip|delta|enter):|refresh_today$|complete_all$"
+    r"|start_timer:|snooze_reminder$)"
+)
+STATS_CALLBACK_PATTERN = r"^stats_(period:|show_|export_)"
+SETTINGS_CALLBACK_PATTERN = (
+    r"^(menu_|toggle_|set_|manage_ex:|edit_ex_target:|del_ex_"
+    r"|add_exercise_prompt$|backup_db$)"
+)
+
+
+def _log_callback(namespace: str, data: str, duration: float) -> None:
+    """Logs callback name + processing time so slow buttons are easy to spot."""
+    if duration >= 1.0:
+        logger.warning("callback=%s namespace=%s duration=%.3fs (SLOW)", data, namespace, duration)
+    else:
+        logger.info("callback=%s namespace=%s duration=%.3fs", data, namespace, duration)
+
+
+def _timed(namespace: str, handler):
+    """Wraps a callback handler to log its callback_data and elapsed time."""
+    async def wrapper(update, context):
+        started = time.perf_counter()
+        query = getattr(update, "callback_query", None)
+        data = query.data if query else "-"
+        try:
+            await handler(update, context)
+        finally:
+            _log_callback(namespace, data, time.perf_counter() - started)
+    return wrapper
+
+
+def register_handlers(app) -> None:
+    """Registers every command, callback and message handler on the application."""
+    # 1. Command handlers
+    app.add_handler(CommandHandler("start", start_handler))
+    app.add_handler(CommandHandler("help", help_handler))
+    app.add_handler(CommandHandler("today", today_handler))
+    app.add_handler(CommandHandler("progress", stats_handler))
+    app.add_handler(CommandHandler("stats", stats_handler))
+    app.add_handler(CommandHandler("history", history_handler))
+    app.add_handler(CommandHandler("settings", settings_handler))
+    app.add_handler(CommandHandler("backup", backup_command_handler))
+    app.add_handler(CommandHandler("badges", badges_command_handler))
+    app.add_handler(CommandHandler("export", export_command_handler))
+
+    # 2. Callback query handlers — one explicit namespace each, no catch-all.
+    app.add_handler(CallbackQueryHandler(_timed("workout", workout_callback_handler),
+                                         pattern=WORKOUT_CALLBACK_PATTERN))
+    app.add_handler(CallbackQueryHandler(_timed("stats", stats_callback_handler),
+                                         pattern=STATS_CALLBACK_PATTERN))
+    app.add_handler(CallbackQueryHandler(_timed("settings", settings_callback_handler),
+                                         pattern=SETTINGS_CALLBACK_PATTERN))
+
+    # 3. Message handlers
+    app.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, web_app_data_handler))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_router))
+
+    # 4. Error handler
+    app.add_error_handler(global_error_handler)
+
+
 def main() -> None:
     """Initializes and runs the workout tracker bot."""
     print("==================================================")
@@ -222,29 +291,8 @@ def main() -> None:
         .build()
     )
 
-    # 5. Register Command Handlers
-    app.add_handler(CommandHandler("start", start_handler))
-    app.add_handler(CommandHandler("help", help_handler))
-    app.add_handler(CommandHandler("today", today_handler))
-    app.add_handler(CommandHandler("progress", stats_handler))
-    app.add_handler(CommandHandler("stats", stats_handler))
-    app.add_handler(CommandHandler("history", history_handler))
-    app.add_handler(CommandHandler("settings", settings_handler))
-    app.add_handler(CommandHandler("backup", backup_command_handler))
-    app.add_handler(CommandHandler("badges", badges_command_handler))
-    app.add_handler(CommandHandler("export", export_command_handler))
-
-    # 6. Register Callback Query Handlers
-    app.add_handler(CallbackQueryHandler(workout_callback_handler, pattern=r"^(ex_|refresh_today)"))
-    app.add_handler(CallbackQueryHandler(stats_callback_handler, pattern=r"^stats_period:"))
-    app.add_handler(CallbackQueryHandler(settings_callback_handler))
-
-    # 7. Register Message Handlers
-    app.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, web_app_data_handler))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_router))
-
-    # 8. Register Error Handler
-    app.add_error_handler(global_error_handler)
+    # 5-8. Register all command, callback and message handlers
+    register_handlers(app)
 
     # 9. Start Polling
     logger.info(f"Bot started! Authorized User ID: {config.USER_ID}")
