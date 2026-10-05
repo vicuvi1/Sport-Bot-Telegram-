@@ -80,6 +80,17 @@ def init_db(db_path: Optional[Path] = None) -> None:
             );
         """)
 
+        # 6. Vacation / sick pauses. Dates are inclusive YYYY-MM-DD strings.
+        # Kept as history so past streaks and stats stay correct.
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS pauses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                start_date TEXT NOT NULL,
+                end_date TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+        """)
+
         # Seed default settings if not present
         default_settings = {
             "workout_time": config.WORKOUT_TIME or "07:00",
@@ -165,6 +176,47 @@ def create_backup(db_path: Optional[Path] = None, backup_dir: Optional[Path] = N
 
     prune_backups(target_dir)
     return backup_file
+
+def _count_rows(conn: sqlite3.Connection) -> Dict[str, int]:
+    return {
+        table: conn.execute(f"SELECT COUNT(*) FROM {table};").fetchone()[0]
+        for table in ("daily_workouts", "workout_items", "exercises")
+    }
+
+def verify_backup(backup_file: Path, db_path: Optional[Path] = None) -> Dict[str, Any]:
+    """Restore test: opens the backup as a database and compares it to the live one.
+
+    Returns {"ok": bool, "message": str, "counts": {...}}. A backup is only
+    trusted if SQLite's integrity check passes and it holds the same number of
+    workouts, items and exercises as the live database.
+    """
+    try:
+        conn = sqlite3.connect(f"{Path(backup_file).resolve().as_uri()}?mode=ro", uri=True)
+        try:
+            integrity = conn.execute("PRAGMA integrity_check;").fetchone()[0]
+            backup_counts = _count_rows(conn)
+        finally:
+            conn.close()
+    except sqlite3.Error as e:
+        return {"ok": False, "message": f"backup can't be opened: {e}", "counts": {}}
+
+    if integrity != "ok":
+        return {"ok": False, "message": f"integrity check failed: {integrity}", "counts": backup_counts}
+
+    live = get_connection(db_path)
+    try:
+        live_counts = _count_rows(live)
+    finally:
+        live.close()
+
+    if backup_counts != live_counts:
+        return {"ok": False, "counts": backup_counts,
+                "message": f"backup has {backup_counts}, live database has {live_counts}"}
+
+    return {"ok": True, "counts": backup_counts,
+            "message": (f"{backup_counts['daily_workouts']} days, "
+                        f"{backup_counts['workout_items']} exercise logs, "
+                        f"{backup_counts['exercises']} exercises")}
 
 # Number of most recent backup files kept on disk; older ones are deleted.
 BACKUPS_TO_KEEP = 10

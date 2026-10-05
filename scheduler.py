@@ -5,21 +5,28 @@ from typing import Optional
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 
 import config
 from database import (
     get_setting,
     create_backup,
+    verify_backup,
     add_scheduled_alert,
     get_scheduled_alert,
     get_scheduled_alerts,
     delete_scheduled_alert,
 )
+from monitoring import health, ping_healthcheck
+from services.summary_service import build_weekly_summary
+
+HEARTBEAT_MINUTES = 5
 from services.workout_service import (
     get_or_create_daily_workout,
     calculate_streaks,
     get_current_date_str,
+    is_date_paused,
     render_progress_bar
 )
 
@@ -50,6 +57,15 @@ async def send_daily_workout_notification(bot: Bot, snoozed: bool = False) -> No
         logger.info("Snoozed reminder skipped: today's workout is %s.", workout["status"])
         return
 
+    if workout["status"] == "paused":
+        logger.info("Morning workout notification skipped: workouts are paused.")
+        return
+
+    # First day after a vacation / sick pause.
+    yesterday_str = (datetime.strptime(today_str, "%Y-%m-%d").date() - timedelta(days=1)).isoformat()
+    welcome_back = "👋 *Welcome back!* Your streak was kept safe while you were away.\n\n" \
+        if is_date_paused(yesterday_str) else ""
+
     if workout["status"] == "rest":
         text = (
             f"🏖 *Good morning! Today is a Rest Day.*\n\n"
@@ -57,7 +73,7 @@ async def send_daily_workout_notification(bot: Bot, snoozed: bool = False) -> No
             f"🔥 Current streak preserved: *{current_streak} days*."
         )
         try:
-            await bot.send_message(chat_id=config.USER_ID, text=text, parse_mode="Markdown")
+            await bot.send_message(chat_id=config.USER_ID, text=welcome_back + text, parse_mode="Markdown")
         except Exception as e:
             logger.error(f"Error sending rest day notification: {e}")
         return
@@ -66,7 +82,7 @@ async def send_daily_workout_notification(bot: Bot, snoozed: bool = False) -> No
     if snoozed:
         msg = f"⏰ *Snoozed reminder: time for Today's Workout* ({today_str})\n\n"
     else:
-        msg = f"🏋️ *Good morning! Time for Today's Workout* ({today_str})\n\n"
+        msg = welcome_back + f"🏋️ *Good morning! Time for Today's Workout* ({today_str})\n\n"
     keyboard = []
     
     for item in workout["items"]:
@@ -145,6 +161,19 @@ async def send_evening_nudge_notification(bot: Bot) -> None:
     except Exception as e:
         logger.error(f"Error sending evening nudge: {e}")
 
+def check_backup(backup_file) -> str:
+    """Restore-tests a fresh backup and returns a one-line verdict (plain text).
+
+    A failure is logged at ERROR level, so it is also reported to the user.
+    """
+    check = verify_backup(backup_file)
+    health.last_backup_ok = check["ok"]
+    health.last_backup_message = check["message"]
+    if check["ok"]:
+        return f"✅ Verified: the backup opens and holds {check['message']}."
+    logger.error("Backup verification failed: %s", check["message"])
+    return "⚠️ Backup check FAILED. Don't rely on this file; see the error report."
+
 async def send_weekly_backup_notification(bot: Bot) -> None:
     """Automated weekly Sunday database backup sent directly to Telegram."""
     if not config.USER_ID:
@@ -152,17 +181,52 @@ async def send_weekly_backup_notification(bot: Bot) -> None:
 
     try:
         backup_file = create_backup()
+        verdict = check_backup(backup_file)
         with open(backup_file, "rb") as f:
             await bot.send_document(
                 chat_id=config.USER_ID,
                 document=f,
                 filename=backup_file.name,
-                caption="💾 *Automated Weekly Sunday Backup*\n\nYour weekly SQLite database backup is archived here safely.",
-                parse_mode="Markdown"
+                caption=f"💾 Automated Weekly Backup\n\n{verdict}",
             )
         logger.info("Weekly Sunday automated backup sent successfully.")
     except Exception as e:
         logger.error(f"Error sending weekly Sunday backup: {e}")
+
+def build_health_line() -> str:
+    """One-line bot health report for the weekly summary."""
+    parts = []
+    if health.started_at:
+        days = (datetime.now(timezone.utc) - health.started_at).days
+        parts.append(f"running {days}d without restart" if days else "restarted this week")
+    errors = health.errors_since_summary
+    parts.append("no errors this week" if errors == 0 else f"{errors} error(s) this week")
+    if health.last_backup_ok is True:
+        parts.append("last backup verified")
+    elif health.last_backup_ok is False:
+        parts.append("⚠️ last backup check failed")
+    if config.HEALTHCHECK_URL:
+        parts.append("outside alarm on" if health.last_heartbeat_ok is not False else "⚠️ outside alarm ping failing")
+    else:
+        parts.append("outside alarm not set up")
+    return "🩺 Bot health: " + ", ".join(parts)
+
+async def send_weekly_summary(bot: Bot) -> None:
+    """Sunday evening summary: the week's progress plus a bot health line."""
+    if not config.USER_ID or get_setting("notifications_enabled", "1") != "1":
+        return
+    try:
+        text = build_weekly_summary(health_line=build_health_line())
+        await bot.send_message(chat_id=config.USER_ID, text=text, parse_mode="Markdown")
+        health.errors_since_summary = 0
+        logger.info("Weekly summary sent.")
+    except Exception as e:
+        logger.error(f"Error sending weekly summary: {e}")
+
+async def send_heartbeat(bot: Bot) -> None:
+    """Pings the external dead-man's switch (only when HEALTHCHECK_URL is set)."""
+    if config.HEALTHCHECK_URL:
+        await ping_healthcheck(config.HEALTHCHECK_URL, bot)
 
 # ---------------------------------------------------------------------------
 # One-off alerts: rest timers and snoozed reminders
@@ -316,4 +380,26 @@ def reschedule_daily_job(scheduler: AsyncIOScheduler, bot: Bot) -> None:
         replace_existing=True
     )
 
-    logger.info(f"Scheduled morning reminder ({hour:02d}:{minute:02d}), evening nudge (19:00), and Sunday backup in {tz_str}.")
+    # 4. Weekly summary, Sunday 20:00
+    scheduler.add_job(
+        send_weekly_summary,
+        trigger=CronTrigger(day_of_week="sun", hour=20, minute=0, timezone=tz),
+        id="weekly_summary",
+        args=[bot],
+        replace_existing=True
+    )
+
+    # 5. External heartbeat every 5 minutes (no-op without HEALTHCHECK_URL).
+    # Not tied to the user's timezone, so it is (re)added with the same id.
+    if config.HEALTHCHECK_URL:
+        scheduler.add_job(
+            send_heartbeat,
+            trigger=IntervalTrigger(minutes=HEARTBEAT_MINUTES),
+            id="heartbeat",
+            args=[bot],
+            next_run_time=datetime.now(timezone.utc),
+            replace_existing=True
+        )
+
+    logger.info(f"Scheduled morning reminder ({hour:02d}:{minute:02d}), evening nudge (19:00), "
+                f"Sunday summary (20:00) and backup (23:55) in {tz_str}.")

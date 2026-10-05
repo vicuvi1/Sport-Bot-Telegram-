@@ -67,6 +67,7 @@ def callback_texts() -> dict:
             "set_time:07:00", "set_time_custom", "set_tz:UTC", "set_tz_custom",
             "set_prog_pct:5", "manage_ex:1", "edit_ex_target:1",
             "del_ex_confirm:1", "del_ex_do:1", "add_exercise_prompt", "backup_db",
+            "menu_pause", "set_pause:3", "set_pause:7", "set_pause_custom", "set_resume",
         ],
     }
 

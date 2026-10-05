@@ -20,6 +20,12 @@ except ValueError:
 TIMEZONE = os.getenv("TIMEZONE", "Europe/Chisinau").strip()
 WORKOUT_TIME = os.getenv("WORKOUT_TIME", "07:00").strip()
 
+# Optional external dead-man's switch (e.g. https://hc-ping.com/<uuid>).
+# The bot pings it every few minutes; if pings stop, that service alerts you.
+HEALTHCHECK_URL = os.getenv("HEALTHCHECK_URL", "").strip()
+if HEALTHCHECK_URL and not HEALTHCHECK_URL.startswith("https://"):
+    HEALTHCHECK_URL = ""
+
 # Database & backup paths
 DATA_DIR = BASE_DIR / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)

@@ -1,10 +1,11 @@
 import sys
+import asyncio
 import logging
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from telegram import Update
-from telegram.error import Conflict
+from telegram.error import Conflict, NetworkError
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -16,7 +17,7 @@ from telegram.ext import (
 
 import config
 from database import init_db, create_backup
-from scheduler import setup_scheduler
+from scheduler import setup_scheduler, check_backup
 from handlers.start import start_handler, help_handler, is_authorized
 from handlers.workout import today_handler, workout_callback_handler, custom_amount_message_handler, build_today_workout_view
 from handlers.stats import (
@@ -26,8 +27,15 @@ from handlers.stats import (
     badges_command_handler,
     export_command_handler
 )
-from handlers.settings import settings_handler, settings_callback_handler, settings_text_input_handler
+from handlers.settings import (
+    settings_handler,
+    settings_callback_handler,
+    settings_text_input_handler,
+    pause_command_handler
+)
 from handlers.status import status_handler, get_version
+from monitoring import health, install_error_reporter
+from services.summary_service import build_weekly_summary
 from services.workout_service import (
     get_or_create_daily_workout,
     update_workout_item,
@@ -92,6 +100,26 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         parse_mode="Markdown"
     )
 
+async def cancel_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles /cancel: leaves any "type a value" prompt.
+
+    Commands never reach text_router (it filters them out), so without this
+    handler /cancel did nothing and the prompt stayed active.
+    """
+    if not is_authorized(update):
+        return
+    was_waiting = bool(context.user_data.pop("awaiting_reps_item_id", None))
+    was_waiting = bool(context.user_data.pop("awaiting_setting", None)) or was_waiting
+    await update.message.reply_text("❌ Cancelled." if was_waiting else "Nothing to cancel.")
+
+async def summary_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles /summary: this week's summary on demand (also sent Sundays at 20:00)."""
+    if not is_authorized(update):
+        return
+    from scheduler import build_health_line
+    text = build_weekly_summary(health_line=build_health_line())
+    await update.message.reply_text(text, parse_mode="Markdown")
+
 async def backup_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles direct /backup command."""
     if not is_authorized(update):
@@ -100,6 +128,7 @@ async def backup_command_handler(update: Update, context: ContextTypes.DEFAULT_T
     await update.message.reply_text("⏳ Generating database backup...")
     try:
         backup_file = create_backup()
+        verdict = check_backup(backup_file)
         with open(backup_file, "rb") as f:
             await update.message.reply_document(
                 document=f,
@@ -110,7 +139,8 @@ async def backup_command_handler(update: Update, context: ContextTypes.DEFAULT_T
                     "To restore manually:\n"
                     "1. Stop the bot\n"
                     "2. Copy this file to `data/workout.db`\n"
-                    "3. Restart the bot"
+                    "3. Restart the bot\n\n"
+                    f"{verdict}"
                 ),
                 parse_mode="Markdown"
             )
@@ -134,6 +164,12 @@ async def global_error_handler(update: object, context: ContextTypes.DEFAULT_TYP
     a short, friendly message that leaks no internal details.
     """
     err = context.error
+
+    # Brief network blips while polling (e.g. "Bad Gateway") are retried
+    # automatically by PTB; they are not worth an error report.
+    if update is None and isinstance(err, NetworkError):
+        logger.warning("Transient network error while polling: %s", err)
+        return
 
     # Polling errors arrive here with update=None. Conflict means a second
     # process is calling getUpdates with this token at the same time.
@@ -203,6 +239,9 @@ async def on_startup(application) -> None:
     scheduler = setup_scheduler(application.bot)
     application.bot_data["scheduler"] = scheduler
     application.bot_data["started_at"] = datetime.now(timezone.utc)
+    health.started_at = application.bot_data["started_at"]
+    # Forward ERROR log lines to the user's chat (rate limited).
+    install_error_reporter(application.bot, config.USER_ID, asyncio.get_running_loop())
     # Captured once at startup: after a `git pull` without a restart, git would
     # report the new commit while the old code is still running.
     application.bot_data["version"] = get_version()
@@ -343,6 +382,9 @@ def register_handlers(app) -> None:
     app.add_handler(CommandHandler("badges", badges_command_handler))
     app.add_handler(CommandHandler("export", export_command_handler))
     app.add_handler(CommandHandler("status", status_handler))
+    app.add_handler(CommandHandler("pause", pause_command_handler))
+    app.add_handler(CommandHandler("summary", summary_command_handler))
+    app.add_handler(CommandHandler("cancel", cancel_command_handler))
 
     # 2. Callback query handlers — one explicit namespace each, plus a final
     #    fallback that only answers callbacks none of them claimed.

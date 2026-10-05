@@ -12,6 +12,7 @@ from services.workout_service import (
     complete_all_exercises_for_workout,
     calculate_streaks,
     get_current_date_str,
+    get_active_pause,
     render_progress_bar
 )
 
@@ -34,6 +35,20 @@ def timer_callback_data(seconds: int, label: str) -> str:
 def build_today_workout_view(workout: Dict[str, Any], date_str: str) -> tuple[str, InlineKeyboardMarkup]:
     """Generates the text and inline keyboard for the daily workout overview with visual progress bars."""
     current_streak, _ = calculate_streaks(today_str=date_str)
+
+    if workout["status"] == "paused":
+        pause = get_active_pause(date_str)
+        until = f" until *{pause['end_date']}*" if pause else ""
+        text = (
+            f"🟦 *Workouts are paused{until}* ({date_str})\n\n"
+            "No reminders while you're away, and your streak is frozen.\n"
+            f"🔥 Current streak: *{current_streak} days* (safe)."
+        )
+        keyboard = [
+            [InlineKeyboardButton("▶️ Resume Now", callback_data="set_resume")],
+            [InlineKeyboardButton("🏖 Change Pause", callback_data="menu_pause")],
+        ]
+        return text, InlineKeyboardMarkup(keyboard)
 
     if workout["status"] == "rest":
         text = (
@@ -157,6 +172,14 @@ async def workout_callback_handler(update: Update, context: ContextTypes.DEFAULT
         await query.answer()
 
     today_str = get_current_date_str()
+
+    # Buttons on messages sent before a pause must not log workouts on a paused day.
+    if data == "complete_all" or data.startswith("ex_"):
+        workout = get_or_create_daily_workout(today_str)
+        if workout["status"] == "paused":
+            text, markup = build_today_workout_view(workout, today_str)
+            await query.edit_message_text(text, reply_markup=markup, parse_mode="Markdown")
+            return
 
     if data == "complete_all":
         workout = get_or_create_daily_workout(today_str)

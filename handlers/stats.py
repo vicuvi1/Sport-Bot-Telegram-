@@ -156,7 +156,8 @@ async def history_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 "completed": "✅ Completed",
                 "skipped": "⏭ Skipped",
                 "rest": "🏖 Rest Day",
-                "pending": "⏳ Incomplete"
+                "pending": "⏳ Incomplete",
+                "paused": "🟦 Paused"
             }.get(w["status"], w["status"].capitalize())
 
             msg += f"🗓 *{w['date']}* — {status_tag}\n"

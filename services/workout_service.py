@@ -32,6 +32,105 @@ def local_now_iso(db_path: Optional[Path] = None) -> str:
         now = datetime.now()
     return now.replace(tzinfo=None).isoformat()
 
+# ============================================================================
+# VACATION / SICK PAUSES
+# ============================================================================
+# While paused: no reminders, the streak is frozen (paused days count like rest
+# days), and the days show as paused in history instead of missed.
+
+MAX_PAUSE_DAYS = 60
+
+def _to_date(date_str: str) -> date:
+    return datetime.strptime(date_str, "%Y-%m-%d").date()
+
+def get_active_pause(today_str: Optional[str] = None, db_path: Optional[Path] = None) -> Optional[Dict[str, Any]]:
+    """Returns the pause covering today, or None."""
+    today_str = today_str or get_current_date_str(db_path=db_path)
+    with get_connection(db_path) as conn:
+        row = conn.execute(
+            "SELECT * FROM pauses WHERE start_date <= ? AND end_date >= ? ORDER BY end_date DESC LIMIT 1;",
+            (today_str, today_str)
+        ).fetchone()
+        return dict(row) if row else None
+
+def get_paused_dates(db_path: Optional[Path] = None) -> set:
+    """All dates (YYYY-MM-DD) covered by any pause, past or planned."""
+    with get_connection(db_path) as conn:
+        rows = conn.execute("SELECT start_date, end_date FROM pauses;").fetchall()
+    dates = set()
+    for r in rows:
+        d, end = _to_date(r["start_date"]), _to_date(r["end_date"])
+        # Bounded loop: a corrupt row can't make this run forever.
+        for _ in range(MAX_PAUSE_DAYS * 2):
+            if d > end:
+                break
+            dates.add(d.isoformat())
+            d += timedelta(days=1)
+    return dates
+
+def is_date_paused(date_str: str, db_path: Optional[Path] = None) -> bool:
+    with get_connection(db_path) as conn:
+        row = conn.execute(
+            "SELECT 1 FROM pauses WHERE start_date <= ? AND end_date >= ? LIMIT 1;",
+            (date_str, date_str)
+        ).fetchone()
+        return row is not None
+
+def start_pause(days: int, today_str: Optional[str] = None, db_path: Optional[Path] = None) -> Dict[str, Any]:
+    """Pauses from today for `days` days (today included). Extends an active pause.
+
+    Today's unfinished workout is marked paused so it no longer counts as missed.
+    """
+    days = max(1, min(int(days), MAX_PAUSE_DAYS))
+    today_str = today_str or get_current_date_str(db_path=db_path)
+    end_str = (_to_date(today_str) + timedelta(days=days - 1)).isoformat()
+    active = get_active_pause(today_str, db_path=db_path)
+
+    with get_connection(db_path) as conn:
+        if active:
+            conn.execute("UPDATE pauses SET end_date = ? WHERE id = ?;", (end_str, active["id"]))
+            pause_id = active["id"]
+        else:
+            cursor = conn.execute(
+                "INSERT INTO pauses (start_date, end_date, created_at) VALUES (?, ?, ?);",
+                (today_str, end_str, local_now_iso(db_path))
+            )
+            pause_id = cursor.lastrowid
+        conn.execute(
+            "UPDATE daily_workouts SET status = 'paused' WHERE date = ? AND status = 'pending';",
+            (today_str,)
+        )
+        conn.commit()
+        return dict(conn.execute("SELECT * FROM pauses WHERE id = ?;", (pause_id,)).fetchone())
+
+def resume_from_pause(today_str: Optional[str] = None, db_path: Optional[Path] = None) -> bool:
+    """Ends the active pause now. Returns False if nothing was paused."""
+    today_str = today_str or get_current_date_str(db_path=db_path)
+    active = get_active_pause(today_str, db_path=db_path)
+    if not active:
+        return False
+
+    yesterday_str = (_to_date(today_str) - timedelta(days=1)).isoformat()
+    with get_connection(db_path) as conn:
+        if active["start_date"] <= yesterday_str:
+            conn.execute("UPDATE pauses SET end_date = ? WHERE id = ?;", (yesterday_str, active["id"]))
+        else:
+            conn.execute("DELETE FROM pauses WHERE id = ?;", (active["id"],))
+
+        row = conn.execute(
+            "SELECT id, (SELECT COUNT(*) FROM workout_items WHERE daily_workout_id = dw.id) AS n "
+            "FROM daily_workouts dw WHERE date = ? AND status = 'paused';",
+            (today_str,)
+        ).fetchone()
+        if row:
+            if row["n"]:
+                conn.execute("UPDATE daily_workouts SET status = 'pending' WHERE id = ?;", (row["id"],))
+            else:
+                # Created while paused (no exercises): drop it so it regenerates.
+                conn.execute("DELETE FROM daily_workouts WHERE id = ?;", (row["id"],))
+        conn.commit()
+    return True
+
 # Characters that break Telegram's legacy Markdown or the ":"-separated
 # callback_data format when they appear inside user-entered labels.
 _UNSAFE_LABEL_CHARS = "*_`[]:"
@@ -201,7 +300,14 @@ def get_or_create_daily_workout(
                 ex for ex in all_active if is_day_active(weekday, ex.get("days_of_week", "0,1,2,3,4,5,6"))
             ]
 
-            if not is_global_workout_day or not eligible_exercises:
+            if is_date_paused(date_str, db_path=db_path):
+                cursor.execute(
+                    "INSERT INTO daily_workouts (date, status, created_at) VALUES (?, 'paused', ?);",
+                    (date_str, now_iso)
+                )
+                conn.commit()
+                workout_id = cursor.lastrowid
+            elif not is_global_workout_day or not eligible_exercises:
                 # Rest day
                 cursor.execute(
                     "INSERT INTO daily_workouts (date, status, created_at) VALUES (?, 'rest', ?);",
@@ -407,7 +513,7 @@ def calculate_streaks(
 ) -> Tuple[int, int]:
     """
     Calculates (current_streak, best_streak) in days.
-    Rest days DO NOT break streaks.
+    Rest days and paused (vacation/sick) days DO NOT break streaks.
     """
     if not today_str:
         today_str = get_current_date_str(db_path=db_path)
@@ -425,6 +531,8 @@ def calculate_streaks(
 
     if not workouts_by_date:
         return 0, 0
+
+    paused_dates = get_paused_dates(db_path=db_path)
 
     first_date_str = min(workouts_by_date.keys())
     first_date = datetime.strptime(first_date_str, "%Y-%m-%d").date()
@@ -445,6 +553,9 @@ def calculate_streaks(
                 best_streak = current_running_streak
         elif w_status == "rest" or (w_status is None and not is_global_active):
             # Rest day: streak is preserved, neither incremented nor broken!
+            pass
+        elif w_status == "paused" or d_str in paused_dates:
+            # Vacation / sick pause: frozen like a rest day.
             pass
         elif d == today_date:
             # Today is in progress! Do not break current streak yet.
@@ -575,6 +686,7 @@ def generate_workout_heatmap(
         rows = cursor.fetchall()
         workouts_map = {r["date"]: r["status"] for r in rows}
 
+    paused_dates = get_paused_dates(db_path=db_path)
     output = "📅 *Workout Heatmap (Last 4 Weeks)*\n\n` M   T   W   T   F   S   S`\n"
 
     curr = start_date
@@ -583,7 +695,9 @@ def generate_workout_heatmap(
         w_status = workouts_map.get(d_str)
         is_workout_day = is_day_active(curr.weekday(), workout_days_setting)
 
-        if curr > today:
+        if w_status != "completed" and (w_status == "paused" or d_str in paused_dates):
+            icon = "🟦"  # paused (past, today, or planned)
+        elif curr > today:
             icon = "▫️"
         elif curr == today:
             if w_status == "completed":
@@ -611,6 +725,7 @@ def generate_workout_heatmap(
         "\n*Legend:*\n"
         "🟩 Done   🟨 Partial   ⬜ Rest\n"
         "🟥 Missed ⏳ Today     ▫️ Future\n"
+        "🟦 Paused (vacation/sick)\n"
     )
     return output
 

@@ -10,6 +10,8 @@ from telegram.ext import ContextTypes
 import config
 from database import get_setting, get_latest_backup, get_scheduled_alerts
 from handlers.start import is_authorized
+from monitoring import health
+from services.workout_service import get_active_pause
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +19,7 @@ logger = logging.getLogger(__name__)
 JOB_LABELS = {
     "daily_morning_workout": "Morning reminder",
     "daily_evening_nudge": "Evening nudge",
+    "weekly_summary": "Weekly summary",
     "weekly_sunday_backup": "Weekly backup",
 }
 
@@ -84,6 +87,21 @@ def build_status_text(bot_data: Dict[str, Any], now: Optional[datetime] = None) 
     else:
         lines.append(f"👆 Button clicks received: *{clicks}*")
 
+    lines.append(f"🚨 Errors since start: *{health.errors_total}*")
+
+    if not config.HEALTHCHECK_URL:
+        lines.append("📡 Outside alarm: not set up (`HEALTHCHECK_URL`)")
+    elif health.last_heartbeat_ok is None:
+        lines.append("📡 Outside alarm: waiting for first ping")
+    else:
+        ago = format_duration((now - health.last_heartbeat_at).total_seconds())
+        state = "✅ OK" if health.last_heartbeat_ok else "⚠️ failing"
+        lines.append(f"📡 Outside alarm: {state} (last ping {ago} ago)")
+
+    pause = get_active_pause()
+    if pause:
+        lines.append(f"🟦 Paused until {pause['end_date']}")
+
     scheduler = bot_data.get("scheduler")
     lines += ["", "⏰ *Upcoming*"]
     if scheduler is None:
@@ -109,7 +127,8 @@ def build_status_text(bot_data: Dict[str, Any], now: Optional[datetime] = None) 
     latest = get_latest_backup()
     if latest:
         backup_time = datetime.fromtimestamp(latest.stat().st_mtime, tz=timezone.utc)
-        lines.append(f"• Last backup: {_fmt_local(backup_time, tz)}")
+        verified = {True: " ✅ verified", False: " ⚠️ check failed"}.get(health.last_backup_ok, "")
+        lines.append(f"• Last backup: {_fmt_local(backup_time, tz)}{verified}")
     else:
         lines.append("• Last backup: none yet")
 

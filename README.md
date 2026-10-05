@@ -6,7 +6,7 @@
   <img src="https://img.shields.io/badge/Database-SQLite3-003B57?style=for-the-badge&logo=sqlite&logoColor=white" alt="SQLite" />
   <img src="https://img.shields.io/badge/Scheduling-APScheduler-orange?style=for-the-badge" alt="APScheduler" />
   <img src="https://img.shields.io/badge/AI%20Dependencies-None%20(Pure%20Python)-success?style=for-the-badge" alt="Zero AI" />
-  <img src="https://img.shields.io/badge/Tests-61%20Passing-brightgreen?style=for-the-badge" alt="Tests" />
+  <img src="https://img.shields.io/badge/Tests-100%20Passing-brightgreen?style=for-the-badge" alt="Tests" />
 </p>
 
 <p align="center">
@@ -79,6 +79,19 @@ Track lifetime fitness milestones with built-in badges:
 * **Weekly Automated Backups:** APScheduler sends a backup of `workout.db` to your Telegram chat every Sunday night.
 * **On-Demand Backup:** Download your database anytime via `/backup` or the Settings menu.
 * **Automatic Cleanup:** Only the 10 most recent backup files are kept in `backups/` on the server.
+* **Verified Backups:** Every backup is restore-tested: the copy is opened as a database, integrity-checked, and compared with the live data. The result is shown on the backup message.
+
+### 7b. 🏖 Vacation / Sick Pause (`/pause`)
+* Pause for 3 days, 1 week, 2 weeks, or a custom number of days / end date (max 60).
+* While paused: no reminders, the streak is **frozen** (paused days count like rest days), and the heatmap shows 🟦 instead of 🟥.
+* Reminders restart automatically after the pause, with a "Welcome back" message. **Resume Now** ends it early.
+
+### 7c. 📆 Weekly Summary (`/summary`)
+* Every Sunday at 20:00: workouts done vs scheduled, per-exercise totals compared with last week, new personal records (best single day), and a bot-health line (errors this week, backup check, outside alarm).
+
+### 7d. 🩺 Unattended Operation
+* **Error reports:** any error is sent to you in Telegram (same error at most once per hour, max 10 reports per hour), so you never need to read server logs to notice a problem.
+* **Outside alarm (optional, recommended):** the bot pings a free [healthchecks.io](https://healthchecks.io) check every 5 minutes. If the server, network or bot dies, the pings stop and healthchecks.io alerts you by email or Telegram. A dead process can't report its own death, so this is the only way to catch it. See *Setting up the outside alarm* below.
 
 ### 8. 📱 Telegram Mini App (Web App Interface) — currently disabled
 > The Mini App is turned off: Telegram only opens Mini Apps from a public **HTTPS** URL. The code is kept in `webapp/`; to re-enable it, serve it over HTTPS and start `webapp.server.start_webapp_server` in `main.py`'s `on_startup`.
@@ -144,6 +157,9 @@ flowchart TD
 | `/settings` | ⚙️ Settings | Configure time, timezone, auto-progression, exercises, and notifications |
 | `/backup` | 💾 Backup Data | Generates a timestamped `.db` SQLite backup sent to chat |
 | `/status` | — | Health check: uptime, running version, button clicks received, next reminders, last backup |
+| `/pause` | ⚙️ Settings → 🏖 | Vacation / sick pause: no reminders, streak frozen |
+| `/summary` | — | This week's summary on demand (also sent Sundays 20:00) |
+| `/cancel` | — | Leave any "type a value" prompt |
 | `/help` | — | Quick user guide and command breakdown |
 
 ---
@@ -188,6 +204,8 @@ TELEGRAM_BOT_TOKEN=1234567890:ABCdefGHIjklMNOpqrsTUVwxyz
 TELEGRAM_USER_ID=1900611848
 TIMEZONE=Europe/Chisinau
 WORKOUT_TIME=07:00
+# Optional outside alarm, see below
+HEALTHCHECK_URL=https://hc-ping.com/your-check-uuid
 ```
 > **Tip:** You can obtain your numeric `TELEGRAM_USER_ID` by messaging [@userinfobot](https://t.me/userinfobot) on Telegram.
 
@@ -252,6 +270,20 @@ To run the bot 24/7 on an Ubuntu VPS with automatic startup on boot and auto-res
    # Tail live logs
    journalctl -u workout-bot -f
    ```
+
+### After an Ubuntu release upgrade
+
+A major upgrade replaces the system Python, which breaks the bot's `.venv`. Rebuild it with one command (data is untouched):
+```bash
+cd /opt/workout-bot && ./scripts/rebuild_venv.sh
+```
+
+### Setting up the outside alarm
+
+1. Create a free account at [healthchecks.io](https://healthchecks.io) and add a check with **period 5 minutes** and **grace time 15 minutes**.
+2. Under the check's *Integrations*, enable email and/or Telegram notifications.
+3. Copy the check's ping URL (`https://hc-ping.com/...`) into `HEALTHCHECK_URL` in `.env` and restart the bot.
+4. `/status` should show **📡 Outside alarm: ✅ OK** within a minute. If the bot can't reach Telegram, it pings `/fail` so the alarm fires even though the server is up.
 
 ### Verifying the live bot
 

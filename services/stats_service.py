@@ -60,7 +60,7 @@ def get_stats_for_period(
             SELECT 
                 COUNT(*) as total_days,
                 SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed_workouts,
-                SUM(CASE WHEN status != 'rest' THEN 1 ELSE 0 END) as scheduled_workouts
+                SUM(CASE WHEN status NOT IN ('rest', 'paused') THEN 1 ELSE 0 END) as scheduled_workouts
             FROM daily_workouts
             {date_filter};
             """,

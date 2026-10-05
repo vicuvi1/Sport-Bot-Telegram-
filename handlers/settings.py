@@ -1,12 +1,16 @@
 import logging
 import re
+from datetime import datetime
 from pathlib import Path
+from typing import Optional
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 import config
 from database import get_setting, set_setting, create_backup
 from handlers.start import is_authorized
+from handlers.workout import build_today_workout_view
+from scheduler import check_backup
 from services.workout_service import (
     get_exercises,
     get_exercise_by_id,
@@ -14,7 +18,13 @@ from services.workout_service import (
     update_exercise,
     delete_exercise,
     toggle_exercise_active,
-    sanitize_label
+    sanitize_label,
+    get_active_pause,
+    start_pause,
+    resume_from_pause,
+    get_current_date_str,
+    get_or_create_daily_workout,
+    MAX_PAUSE_DAYS
 )
 
 logger = logging.getLogger(__name__)
@@ -33,9 +43,12 @@ def build_settings_menu() -> tuple[str, InlineKeyboardMarkup]:
 
     notif_status = "🟢 Enabled" if notif_enabled else "🔴 Disabled"
     prog_status = "🟢 Enabled" if prog_enabled else "🔴 Disabled"
+    pause = get_active_pause()
+    pause_status = f"🟦 Paused until {pause['end_date']}" if pause else "Not paused"
 
     text = (
         "⚙️ *Bot Settings & Configuration*\n\n"
+        f"• *Vacation / Sick Pause:* {pause_status}\n"
         f"• *Notifications:* {notif_status}\n"
         f"• *Daily Workout Time:* `{workout_time}` ({timezone})\n"
         f"• *Auto Progression:* {prog_status} (+{prog_pct}% after {consec} workouts)\n"
@@ -47,6 +60,7 @@ def build_settings_menu() -> tuple[str, InlineKeyboardMarkup]:
     prog_btn_label = "🚀 Turn Progression OFF" if prog_enabled else "🚀 Turn Progression ON"
 
     keyboard = [
+        [InlineKeyboardButton("🏖 Vacation / Sick Pause", callback_data="menu_pause")],
         [InlineKeyboardButton(notif_btn_label, callback_data="toggle_notif")],
         [
             InlineKeyboardButton(f"⏰ Time: {workout_time}", callback_data="menu_time"),
@@ -59,6 +73,58 @@ def build_settings_menu() -> tuple[str, InlineKeyboardMarkup]:
     ]
 
     return text, InlineKeyboardMarkup(keyboard)
+
+PAUSE_PRESETS = [(3, "3 days"), (7, "1 week"), (14, "2 weeks")]
+
+def build_pause_menu(notice: str = "") -> tuple[str, InlineKeyboardMarkup]:
+    """The vacation / sick pause menu."""
+    pause = get_active_pause()
+    text = f"{notice}\n\n" if notice else ""
+    text += "🏖 *Vacation / Sick Pause*\n\n"
+    if pause:
+        text += (
+            f"Paused from *{pause['start_date']}* until *{pause['end_date']}* (inclusive).\n"
+            "No reminders are sent and your streak is frozen. "
+            "Reminders restart automatically the day after.\n\n"
+            "Extend the pause or resume now:"
+        )
+    else:
+        text += (
+            "Going on vacation or feeling sick? Pause starting today:\n"
+            "• no reminders\n"
+            "• your streak is frozen, not broken\n"
+            "• paused days show as 🟦 instead of missed\n\n"
+            "Reminders restart automatically when the pause ends."
+        )
+
+    keyboard = [
+        [InlineKeyboardButton(label, callback_data=f"set_pause:{days}") for days, label in PAUSE_PRESETS],
+        [InlineKeyboardButton("✏️ Custom (days or end date)", callback_data="set_pause_custom")],
+    ]
+    if pause:
+        keyboard.append([InlineKeyboardButton("▶️ Resume Now", callback_data="set_resume")])
+    keyboard.append([InlineKeyboardButton("⬅️ Back to Settings", callback_data="menu_settings")])
+    return text, InlineKeyboardMarkup(keyboard)
+
+def parse_pause_input(text: str, today_str: str) -> Optional[int]:
+    """Turns '10' (days) or '2026-10-20' (last paused day) into a day count."""
+    text = text.strip()
+    if text.isdigit():
+        days = int(text)
+    else:
+        try:
+            end = datetime.strptime(text, "%Y-%m-%d").date()
+        except ValueError:
+            return None
+        days = (end - datetime.strptime(today_str, "%Y-%m-%d").date()).days + 1
+    return days if 1 <= days <= MAX_PAUSE_DAYS else None
+
+async def pause_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles /pause: opens the vacation / sick pause menu."""
+    if not is_authorized(update):
+        return
+    text, markup = build_pause_menu()
+    await update.message.reply_text(text, reply_markup=markup, parse_mode="Markdown")
 
 async def settings_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles the /settings command or '⚙️ Settings' button."""
@@ -83,6 +149,36 @@ async def settings_callback_handler(update: Update, context: ContextTypes.DEFAUL
     if data == "menu_settings":
         text, markup = build_settings_menu()
         await query.edit_message_text(text, reply_markup=markup, parse_mode="Markdown")
+        return
+
+    if data == "menu_pause":
+        text, markup = build_pause_menu()
+        await query.edit_message_text(text, reply_markup=markup, parse_mode="Markdown")
+        return
+
+    if data.startswith("set_pause:"):
+        pause = start_pause(int(data.split(":")[1]))
+        text, markup = build_pause_menu(f"✅ Paused until *{pause['end_date']}*.")
+        await query.edit_message_text(text, reply_markup=markup, parse_mode="Markdown")
+        return
+
+    if data == "set_pause_custom":
+        context.user_data["awaiting_setting"] = "pause_custom"
+        await query.message.reply_text(
+            "✏️ *Custom Pause*\n\nReply with a number of days (e.g. `10`) or the last "
+            f"paused day as a date (e.g. `2026-12-31`). Maximum {MAX_PAUSE_DAYS} days.\n\n"
+            "Or type `/cancel` to abort.",
+            parse_mode="Markdown"
+        )
+        return
+
+    if data == "set_resume":
+        resumed = resume_from_pause()
+        today_str = get_current_date_str()
+        workout = get_or_create_daily_workout(today_str)
+        text, markup = build_today_workout_view(workout, today_str)
+        notice = "▶️ *Welcome back! Reminders are on again.*\n\n" if resumed else ""
+        await query.edit_message_text(notice + text, reply_markup=markup, parse_mode="Markdown")
         return
 
     if data == "toggle_notif":
@@ -303,6 +399,7 @@ async def settings_callback_handler(update: Update, context: ContextTypes.DEFAUL
     if data == "backup_db":
         await query.message.reply_text("⏳ Generating database backup...")
         backup_file = create_backup()
+        verdict = check_backup(backup_file)
         try:
             with open(backup_file, "rb") as f:
                 await query.message.reply_document(
@@ -314,7 +411,8 @@ async def settings_callback_handler(update: Update, context: ContextTypes.DEFAUL
                         "To restore manually:\n"
                         "1. Stop the bot\n"
                         "2. Copy this file into `data/workout.db`\n"
-                        "3. Restart the bot"
+                        "3. Restart the bot\n\n"
+                        f"{verdict}"
                     ),
                     parse_mode="Markdown"
                 )
@@ -338,6 +436,21 @@ async def settings_text_input_handler(update: Update, context: ContextTypes.DEFA
         await update.message.reply_text("❌ Configuration change cancelled.")
         settings_text, markup = build_settings_menu()
         await update.message.reply_text(settings_text, reply_markup=markup, parse_mode="Markdown")
+        return True
+
+    if setting_key == "pause_custom":
+        days = parse_pause_input(text, get_current_date_str())
+        if days is None:
+            await update.message.reply_text(
+                f"⚠️ Please send a number of days (1–{MAX_PAUSE_DAYS}) or a future date like `2026-12-31`, "
+                "or type `/cancel`.",
+                parse_mode="Markdown"
+            )
+            return True
+        context.user_data.pop("awaiting_setting", None)
+        pause = start_pause(days)
+        p_text, markup = build_pause_menu(f"✅ Paused until *{pause['end_date']}*.")
+        await update.message.reply_text(p_text, reply_markup=markup, parse_mode="Markdown")
         return True
 
     if setting_key == "workout_time":
