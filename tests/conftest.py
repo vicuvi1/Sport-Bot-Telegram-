@@ -17,6 +17,10 @@ import config
 from database import init_db
 
 
+# Fixed fake Telegram user id used as the authorized user in every test.
+TEST_USER_ID = 123456789
+
+
 @pytest.fixture(autouse=True)
 def isolated_global_db(tmp_path, monkeypatch):
     """Redirect the app's global DB / data / backup paths to a temp dir."""
@@ -30,6 +34,10 @@ def isolated_global_db(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "DATA_DIR", data_dir)
     monkeypatch.setattr(config, "BACKUP_DIR", backup_dir)
     monkeypatch.setattr(config, "DB_PATH", db_file)
+
+    # Tests must not depend on the developer's local .env: without a configured
+    # TELEGRAM_USER_ID, is_authorized() rejects every update and tests fail.
+    monkeypatch.setattr(config, "USER_ID", TEST_USER_ID)
 
     init_db(db_file)
     yield db_file

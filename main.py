@@ -285,6 +285,20 @@ def register_handlers(app) -> None:
     app.add_error_handler(global_error_handler)
 
 
+# Placeholder values that mean "no real token has been configured yet".
+# "your_bot_token_from_botfather" is what .env.example ships with.
+PLACEHOLDER_BOT_TOKENS = frozenset({
+    "your_bot_token_from_botfather",
+    "PUT_YOUR_NEW_TOKEN_HERE",
+})
+
+
+def token_is_configured(token: str) -> bool:
+    """Returns True only if the bot token is set and is not a known placeholder."""
+    token = (token or "").strip()
+    return bool(token) and token not in PLACEHOLDER_BOT_TOKENS
+
+
 def main() -> None:
     """Initializes and runs the workout tracker bot."""
     print("==================================================")
@@ -303,14 +317,14 @@ def main() -> None:
 
     # 2. Verify Bot Token
     token = config.BOT_TOKEN
-    if not token or token == "PUT_YOUR_NEW_TOKEN_HERE":
+    if not token_is_configured(token):
         print("\n" + "!" * 58)
         print("⚠️  ACTION REQUIRED: Telegram Bot Token not set!")
         print("!" * 58)
         print("Please edit the `.env` file located at:")
         print(f"  {config.BASE_DIR / '.env'}\n")
         print("Replace:")
-        print("  TELEGRAM_BOT_TOKEN=PUT_YOUR_NEW_TOKEN_HERE")
+        print("  TELEGRAM_BOT_TOKEN=your_bot_token_from_botfather")
         print("With your real token obtained from @BotFather in Telegram.")
         print("!" * 58 + "\n")
         return
