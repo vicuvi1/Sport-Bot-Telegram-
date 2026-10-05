@@ -70,6 +70,15 @@ def callback_texts() -> dict:
             "del_ex_confirm:1", "del_ex_do:1", "add_exercise_prompt", "backup_db",
             "menu_pause", "set_pause:3", "set_pause:7", "set_pause_custom", "set_resume",
         ],
+        "fitness": [
+            "test_menu", "test_start", "test_skip", "test_stop", "test_history",
+            "test_toggle_pullups", "test_timer:squats",
+        ],
+        "partner": [
+            "partner_menu", "partner_invite", "partner_toggle:weekly", "partner_toggle:missed",
+            "partner_remove", "partner_remove_confirm",
+        ],
+        "cheer": ["partner_cheer"],
     }
 
 

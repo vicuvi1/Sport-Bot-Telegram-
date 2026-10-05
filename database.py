@@ -97,6 +97,17 @@ def init_db(db_path: Optional[Path] = None) -> None:
             );
         """)
 
+        # 7. Monthly fitness test results. value NULL = test skipped that month.
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS fitness_results (
+                month TEXT NOT NULL,
+                test_key TEXT NOT NULL,
+                value INTEGER,
+                recorded_at TEXT NOT NULL,
+                PRIMARY KEY (month, test_key)
+            );
+        """)
+
         # Columns added after the first release. ALTER TABLE keeps existing
         # databases (and their history) working without a manual migration.
         _ensure_column(cursor, "daily_workouts", "feedback", "TEXT")           # easy / ok / hard

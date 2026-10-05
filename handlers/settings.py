@@ -61,6 +61,10 @@ def build_settings_menu() -> tuple[str, InlineKeyboardMarkup]:
 
     keyboard = [
         [InlineKeyboardButton("🏖 Vacation / Sick Pause", callback_data="menu_pause")],
+        [
+            InlineKeyboardButton("🤝 Partner", callback_data="partner_menu"),
+            InlineKeyboardButton("🧪 Fitness Test", callback_data="test_menu"),
+        ],
         [InlineKeyboardButton(notif_btn_label, callback_data="toggle_notif")],
         [
             InlineKeyboardButton(f"⏰ Time: {workout_time}", callback_data="menu_time"),

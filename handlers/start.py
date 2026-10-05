@@ -34,10 +34,24 @@ def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handles the /start command."""
+    """Handles the /start command (and accountability-partner invite links)."""
+    # Imported here: handlers.partner imports this module.
+    from handlers.partner import handle_partner_start, reply_to_partner_message
+    from services.partner_service import INVITE_PREFIX, remember_owner_name
+
+    args = getattr(context, "args", None) or []
+    if args and args[0].startswith(INVITE_PREFIX):
+        await handle_partner_start(update, context, args[0][len(INVITE_PREFIX):])
+        return
+
     if not is_authorized(update):
+        if await reply_to_partner_message(update):
+            return
         logger.warning(f"Unauthorized access attempt by user {update.effective_user.id if update.effective_user else 'unknown'}")
         return
+
+    # Used to address the accountability partner ("Victor finished...").
+    remember_owner_name(update.effective_user.first_name)
 
     current_streak, best_streak = calculate_streaks()
     welcome_text = (
@@ -81,6 +95,10 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "  Pause reminders for a few days; your streak is frozen, not broken.\n\n"
         "• *📆 Weekly Summary* (`/summary`)\n"
         "  This week vs last week, personal records, and bot health. Sent automatically Sundays at 20:00.\n\n"
+        "• *🧪 Monthly Fitness Test* (`/test`)\n"
+        "  10 minutes of max-effort tests once a month, to see your real progress month by month.\n\n"
+        "• *🤝 Accountability Partner* (`/partner`)\n"
+        "  Invite a friend to get your weekly summary and test results and send you high-fives.\n\n"
         "• *🩺 Status* (`/status`)\n"
         "  Check the bot is healthy: uptime, version, button clicks received, and upcoming reminders.\n\n"
         "Rest days never break your streak! Keep going strong. 💪"

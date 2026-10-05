@@ -6,7 +6,7 @@
   <img src="https://img.shields.io/badge/Database-SQLite3-003B57?style=for-the-badge&logo=sqlite&logoColor=white" alt="SQLite" />
   <img src="https://img.shields.io/badge/Scheduling-APScheduler-orange?style=for-the-badge" alt="APScheduler" />
   <img src="https://img.shields.io/badge/AI%20Dependencies-None%20(Pure%20Python)-success?style=for-the-badge" alt="Zero AI" />
-  <img src="https://img.shields.io/badge/Tests-121%20Passing-brightgreen?style=for-the-badge" alt="Tests" />
+  <img src="https://img.shields.io/badge/Tests-165%20Passing-brightgreen?style=for-the-badge" alt="Tests" />
 </p>
 
 <p align="center">
@@ -88,6 +88,18 @@ Track lifetime fitness milestones with built-in badges:
 * **Comeback ramp:** after missing 4+ planned workout days (vacation pauses included), workouts ease back in at **70% → 85% → 100%** of your targets.
 * **⏱ Short on Time:** one tap halves today's remaining targets. It still counts for your streak, doesn't trigger progression, and can be undone (↩️ *Back to Full Workout*). The button is also on the morning reminder and evening nudge.
 
+### 7e. 🧪 Monthly Fitness Test (`/test`)
+* On the 1st of every month (reminder repeated on the 4th if not done), about 10 minutes of max-effort tests:
+  **max push-ups** (one set), **squats in 2 minutes** (built-in timer), **longest plank**, and optionally **max pull-ups** (turn on if you have a bar).
+* Guided one test at a time: reply with a number (plank also accepts `1:35`), or Skip / Stop and continue later.
+* Results are compared with your last test, with 🏅 for new personal bests. **📈 My Progress** shows a month-by-month trend, e.g. `▁▄█ 18 → 24 → 31`, *since Aug: +13 (+72%)*.
+
+### 7f. 🤝 Accountability Partner (`/partner`)
+* Invite one friend with a single-use link (valid 48 h). When they tap Start, they become your partner.
+* They receive only what you tick: ✅ weekly summary, ✅ monthly fitness test results, ⬜ an alert if you miss 3 planned workouts in a row (you get a warning the morning before it would be sent).
+* They can send you 👏 high-fives (one per day). They can't see or change anything else; every other message from them only gets a short explanation.
+* Either side can end it: you via `/partner` → Remove, they via `/stop`.
+
 ### 7b. 🏖 Vacation / Sick Pause (`/pause`)
 * Pause for 3 days, 1 week, 2 weeks, or a custom number of days / end date (max 60).
 * While paused: no reminders, the streak is **frozen** (paused days count like rest days), and the heatmap shows 🟦 instead of 🟥.
@@ -165,6 +177,8 @@ flowchart TD
 | `/backup` | 💾 Backup Data | Generates a timestamped `.db` SQLite backup sent to chat |
 | `/status` | — | Health check: uptime, running version, button clicks received, next reminders, last backup |
 | `/pause` | ⚙️ Settings → 🏖 | Vacation / sick pause: no reminders, streak frozen |
+| `/test` | ⚙️ Settings → 🧪 | Monthly fitness test and progress history |
+| `/partner` | ⚙️ Settings → 🤝 | Accountability partner: invite, choose what they get, remove |
 | `/summary` | — | This week's summary on demand (also sent Sundays 20:00) |
 | `/cancel` | — | Leave any "type a value" prompt |
 | `/help` | — | Quick user guide and command breakdown |

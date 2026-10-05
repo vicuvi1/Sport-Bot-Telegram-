@@ -34,6 +34,18 @@ from handlers.settings import (
     pause_command_handler
 )
 from handlers.status import status_handler, get_version
+from handlers.fitness import (
+    fitness_command_handler,
+    fitness_test_callback_handler,
+    fitness_test_text_input_handler
+)
+from handlers.partner import (
+    partner_command_handler,
+    partner_callback_handler,
+    partner_cheer_handler,
+    partner_stop_handler,
+    reply_to_partner_message
+)
 from monitoring import health, install_error_reporter
 from services.summary_service import build_weekly_summary
 from services.workout_service import (
@@ -60,6 +72,7 @@ logger = logging.getLogger(__name__)
 async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Routes incoming text messages to appropriate handlers or workflows."""
     if not is_authorized(update):
+        await reply_to_partner_message(update)
         return
 
     text = update.message.text.strip()
@@ -87,7 +100,10 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await export_command_handler(update, context)
         return
 
-    # Check active input states (entering reps or entering settings)
+    # Check active input states (fitness test result, reps, or settings)
+    if await fitness_test_text_input_handler(update, context):
+        return
+
     if await custom_amount_message_handler(update, context):
         return
 
@@ -110,6 +126,7 @@ async def cancel_command_handler(update: Update, context: ContextTypes.DEFAULT_T
         return
     was_waiting = bool(context.user_data.pop("awaiting_reps_item_id", None))
     was_waiting = bool(context.user_data.pop("awaiting_setting", None)) or was_waiting
+    was_waiting = bool(context.user_data.pop("fitness_test", None)) or was_waiting
     await update.message.reply_text("❌ Cancelled." if was_waiting else "Nothing to cancel.")
 
 async def summary_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -286,6 +303,10 @@ SETTINGS_CALLBACK_PATTERN = (
     r"|add_exercise_prompt$|backup_db$)"
 )
 
+FITNESS_CALLBACK_PATTERN = r"^test_(menu$|start$|skip$|stop$|history$|toggle_pullups$|timer:)"
+PARTNER_CALLBACK_PATTERN = r"^partner_(menu$|invite$|remove$|remove_confirm$|toggle:)"
+CHEER_CALLBACK_PATTERN = r"^partner_cheer$"
+
 
 def _log_callback(namespace: str, data: str, duration: float) -> None:
     """Logs callback name + processing time so slow buttons are easy to spot."""
@@ -302,8 +323,12 @@ def _record_click(context) -> None:
     bot_data["last_callback_at"] = datetime.now(timezone.utc)
 
 
-def _timed(namespace: str, handler):
-    """Wraps a callback handler to log its callback_data and elapsed time."""
+def _timed(namespace: str, handler, owner_only: bool = True):
+    """Wraps a callback handler to log its callback_data and elapsed time.
+
+    With owner_only=False the handler does its own authorization (used for
+    the accountability partner's high-five button).
+    """
     async def wrapper(update, context):
         started = time.perf_counter()
         query = getattr(update, "callback_query", None)
@@ -313,7 +338,7 @@ def _timed(namespace: str, handler):
         logger.info("LIVE CALLBACK RECEIVED data=%s user=%s namespace=%s", data, user_id, namespace)
         _record_click(context)
         try:
-            if not is_authorized(update):
+            if owner_only and not is_authorized(update):
                 # Still answer, otherwise Telegram shows a spinner forever.
                 logger.warning("Ignoring callback %s from unauthorized user %s", data, user_id)
                 await query.answer()
@@ -385,6 +410,9 @@ def register_handlers(app) -> None:
     app.add_handler(CommandHandler("pause", pause_command_handler))
     app.add_handler(CommandHandler("summary", summary_command_handler))
     app.add_handler(CommandHandler("cancel", cancel_command_handler))
+    app.add_handler(CommandHandler("test", fitness_command_handler))
+    app.add_handler(CommandHandler("partner", partner_command_handler))
+    app.add_handler(CommandHandler("stop", partner_stop_handler))
 
     # 2. Callback query handlers — one explicit namespace each, plus a final
     #    fallback that only answers callbacks none of them claimed.
@@ -394,6 +422,13 @@ def register_handlers(app) -> None:
                                          pattern=STATS_CALLBACK_PATTERN))
     app.add_handler(CallbackQueryHandler(_timed("settings", settings_callback_handler),
                                          pattern=SETTINGS_CALLBACK_PATTERN))
+    app.add_handler(CallbackQueryHandler(_timed("fitness", fitness_test_callback_handler),
+                                         pattern=FITNESS_CALLBACK_PATTERN))
+    app.add_handler(CallbackQueryHandler(_timed("partner", partner_callback_handler),
+                                         pattern=PARTNER_CALLBACK_PATTERN))
+    # Pressed by the partner, not the owner: authorization happens inside.
+    app.add_handler(CallbackQueryHandler(_timed("cheer", partner_cheer_handler, owner_only=False),
+                                         pattern=CHEER_CALLBACK_PATTERN))
     # Must stay the last callback handler: answers anything unclaimed above.
     app.add_handler(CallbackQueryHandler(unknown_callback_handler))
 

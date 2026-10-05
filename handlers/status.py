@@ -21,6 +21,7 @@ JOB_LABELS = {
     "daily_evening_nudge": "Evening nudge",
     "weekly_summary": "Weekly summary",
     "weekly_sunday_backup": "Weekly backup",
+    "monthly_test_reminder": "Fitness test reminder",
 }
 
 

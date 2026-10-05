@@ -19,6 +19,7 @@ from database import (
     delete_scheduled_alert,
 )
 from monitoring import health, ping_healthcheck
+from services import fitness_test_service, partner_service
 from services.summary_service import build_weekly_summary
 
 HEARTBEAT_MINUTES = 5
@@ -87,6 +88,10 @@ async def send_daily_workout_notification(bot: Bot, snoozed: bool = False) -> No
         msg = f"⏰ *Snoozed reminder: time for Today's Workout* ({today_str})\n\n"
     else:
         msg = welcome_back + f"🏋️ *Good morning! Time for Today's Workout* ({today_str})\n\n"
+    partner = partner_service.shares("missed")
+    if partner and partner_service.count_missed_in_a_row(today_str) == partner_service.MISSED_ALERT_AFTER - 1:
+        msg = (f"⚠️ You've missed {partner_service.MISSED_ALERT_AFTER - 1} workouts in a row. "
+               f"Miss today too and {partner['name']} gets a heads-up.\n\n") + msg
     keyboard = []
     
     for item in workout["items"]:
@@ -224,12 +229,63 @@ async def send_weekly_summary(bot: Bot) -> None:
     if not config.USER_ID or get_setting("notifications_enabled", "1") != "1":
         return
     try:
-        text = build_weekly_summary(health_line=build_health_line())
+        partner = partner_service.shares("weekly")
+        health_line = build_health_line()
+        if partner:
+            health_line = f"🤝 Shared with {partner['name']}.\n\n{health_line}"
+        text = build_weekly_summary(health_line=health_line)
         await bot.send_message(chat_id=config.USER_ID, text=text, parse_mode="Markdown")
         health.errors_since_summary = 0
         logger.info("Weekly summary sent.")
     except Exception as e:
         logger.error(f"Error sending weekly summary: {e}")
+        return
+
+    if partner:
+        # The partner's copy has no bot-health line (that's only for the owner).
+        await partner_service.send_to_partner(
+            bot, f"🤝 *Weekly update from {partner_service.owner_name()}*\n\n{build_weekly_summary()}")
+
+async def send_monthly_test_reminder(bot: Bot) -> None:
+    """On the 1st (and again on the 4th if still not done): time for the fitness test."""
+    if not config.USER_ID or get_setting("notifications_enabled", "1") != "1":
+        return
+    today_str = get_current_date_str()
+    month = fitness_test_service.current_month(today_str)
+    if fitness_test_service.is_month_complete(month) or is_date_paused(today_str):
+        return
+    first_reminder = today_str.endswith("-01")
+    text = (
+        ("🧪 *It's Fitness Test day!*\n\n" if first_reminder else "🧪 *Your monthly fitness test is still waiting.*\n\n")
+        + "About 10 minutes of max-effort tests. They show how much stronger you're getting, "
+          "month after month. Warm up first, then tap Start."
+    )
+    markup = InlineKeyboardMarkup([[InlineKeyboardButton("▶️ Start Test", callback_data="test_start")]])
+    try:
+        await bot.send_message(chat_id=config.USER_ID, text=text, parse_mode="Markdown", reply_markup=markup)
+    except Exception as e:
+        logger.error(f"Error sending fitness test reminder: {e}")
+
+async def check_missed_workouts(bot: Bot) -> None:
+    """Daily: tells the accountability partner (if opted in) after 3 missed workouts in a row."""
+    today_str = get_current_date_str()
+    if is_date_paused(today_str) or not partner_service.should_alert_missed(today_str):
+        return
+    owner = partner_service.owner_name()
+    sent = await partner_service.send_to_partner(
+        bot,
+        f"👀 *{owner} has missed {partner_service.MISSED_ALERT_AFTER} planned workouts in a row.*\n\n"
+        "A quick message or a high-five from you could get them back on track 💪")
+    if sent:
+        partner = partner_service.get_partner()
+        try:
+            await bot.send_message(
+                chat_id=config.USER_ID,
+                text=f"📣 {partner['name']} was told you missed {partner_service.MISSED_ALERT_AFTER} workouts "
+                     "in a row. Let's get back to it today. Even ⏱ Short on Time counts!",
+                reply_markup=InlineKeyboardMarkup([[QUICK_WORKOUT_BUTTON]]))
+        except Exception as e:
+            logger.error(f"Error sending missed-workouts notice: {e}")
 
 async def send_heartbeat(bot: Bot) -> None:
     """Pings the external dead-man's switch (only when HEALTHCHECK_URL is set)."""
@@ -393,6 +449,24 @@ def reschedule_daily_job(scheduler: AsyncIOScheduler, bot: Bot) -> None:
         send_weekly_summary,
         trigger=CronTrigger(day_of_week="sun", hour=20, minute=0, timezone=tz),
         id="weekly_summary",
+        args=[bot],
+        replace_existing=True
+    )
+
+    # 4b. Monthly fitness test reminder on the 1st, repeated on the 4th if not done
+    scheduler.add_job(
+        send_monthly_test_reminder,
+        trigger=CronTrigger(day="1,4", hour=hour, minute=minute, timezone=tz),
+        id="monthly_test_reminder",
+        args=[bot],
+        replace_existing=True
+    )
+
+    # 4c. Accountability partner: missed-workouts check at midday
+    scheduler.add_job(
+        check_missed_workouts,
+        trigger=CronTrigger(hour=12, minute=0, timezone=tz),
+        id="partner_missed_check",
         args=[bot],
         replace_existing=True
     )
