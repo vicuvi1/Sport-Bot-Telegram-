@@ -9,8 +9,12 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-echo "Python: $(python3 --version)"
-python3 -m venv --clear .venv
+# The system interpreter, not whatever "python3" happens to be first on PATH
+# (pyenv, conda or an agent toolchain could shadow it). Override with PYTHON=...
+PYTHON="${PYTHON:-/usr/bin/python3}"
+
+echo "Python: $("$PYTHON" --version) ($PYTHON)"
+"$PYTHON" -m venv --clear .venv
 ./.venv/bin/pip install --quiet -r requirements.txt
 ./.venv/bin/python -m pytest -q
 ./.venv/bin/python main.py --check
