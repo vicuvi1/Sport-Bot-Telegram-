@@ -21,18 +21,14 @@ from database import (
 from monitoring import health, ping_healthcheck
 from services import fitness_test_service, partner_service
 from services.summary_service import build_weekly_summary
+from views import HTML, build_evening_nudge, build_today_workout_view, esc, quick_toggle_button
 
 HEARTBEAT_MINUTES = 5
 
-# Same callback as the Today view's button (handlers.workout can't be
-# imported here: it imports this module).
-QUICK_WORKOUT_BUTTON = InlineKeyboardButton("⏱ Short on Time (50%)", callback_data="quick_workout")
 from services.workout_service import (
     get_or_create_daily_workout,
-    calculate_streaks,
     get_current_date_str,
-    is_date_paused,
-    render_progress_bar
+    is_date_paused
 )
 
 logger = logging.getLogger(__name__)
@@ -56,7 +52,6 @@ async def send_daily_workout_notification(bot: Bot, snoozed: bool = False) -> No
     tz_str = get_setting("timezone", config.TIMEZONE)
     today_str = get_current_date_str(tz_name=tz_str)
     workout = get_or_create_daily_workout(date_str=today_str)
-    current_streak, _ = calculate_streaks(today_str=today_str)
 
     if snoozed and workout["status"] != "pending":
         logger.info("Snoozed reminder skipped: today's workout is %s.", workout["status"])
@@ -66,61 +61,25 @@ async def send_daily_workout_notification(bot: Bot, snoozed: bool = False) -> No
         logger.info("Morning workout notification skipped: workouts are paused.")
         return
 
-    # First day after a vacation / sick pause.
+    # Greeting above the normal Today screen.
+    intro = ["⏰ <b>Snoozed reminder:</b> here's today's workout." if snoozed
+             else "☀️ <b>Good morning!</b> Here's today's plan."]
     yesterday_str = (datetime.strptime(today_str, "%Y-%m-%d").date() - timedelta(days=1)).isoformat()
-    welcome_back = "👋 *Welcome back!* Your streak was kept safe while you were away.\n\n" \
-        if is_date_paused(yesterday_str) else ""
-
-    if workout["status"] == "rest":
-        text = (
-            f"🏖 *Good morning! Today is a Rest Day.*\n\n"
-            f"No workout scheduled for today. Enjoy your rest and recover!\n"
-            f"🔥 Current streak preserved: *{current_streak} days*."
-        )
-        try:
-            await bot.send_message(chat_id=config.USER_ID, text=welcome_back + text, parse_mode="Markdown")
-        except Exception as e:
-            logger.error(f"Error sending rest day notification: {e}")
-        return
-
-    # Active workout with visual progress bars
-    if snoozed:
-        msg = f"⏰ *Snoozed reminder: time for Today's Workout* ({today_str})\n\n"
-    else:
-        msg = welcome_back + f"🏋️ *Good morning! Time for Today's Workout* ({today_str})\n\n"
+    if is_date_paused(yesterday_str):
+        intro.append("👋 <b>Welcome back!</b> Your streak was kept safe while you were away.")
     partner = partner_service.shares("missed")
-    if partner and partner_service.count_missed_in_a_row(today_str) == partner_service.MISSED_ALERT_AFTER - 1:
-        msg = (f"⚠️ You've missed {partner_service.MISSED_ALERT_AFTER - 1} workouts in a row. "
-               f"Miss today too and {partner['name']} gets a heads-up.\n\n") + msg
-    keyboard = []
-    
-    for item in workout["items"]:
-        status_icon = "✅" if item["status"] == "completed" else ("⏭" if item["status"] == "skipped" else "⏳")
-        bar = render_progress_bar(item["completed_reps"], item["target_reps"], length=8)
-        msg += f"{status_icon} *{item['exercise_name']}* ({item['completed_reps']}/{item['target_reps']} {item['unit']})\n  `{bar}`\n"
-        
-        btn_text = f"{status_icon} {item['exercise_name']} ({item['completed_reps']}/{item['target_reps']})"
-        keyboard.append([InlineKeyboardButton(btn_text, callback_data=f"ex_view:{item['id']}")])
+    if (workout["status"] == "pending" and partner
+            and partner_service.count_missed_in_a_row(today_str) == partner_service.MISSED_ALERT_AFTER - 1):
+        intro.append(f"⚠️ You've missed {partner_service.MISSED_ALERT_AFTER - 1} workouts in a row. "
+                     f"Miss today too and {esc(partner['name'])} gets a heads-up.")
 
-    msg += f"\n🔥 Streak: *{current_streak} days*\n"
-    msg += "Tap an exercise below to log, or tap *Complete All*:"
-    
-    keyboard.insert(0, [InlineKeyboardButton("⚡ Complete All as Scheduled", callback_data="complete_all")])
-    if not workout.get("quick"):
-        keyboard.append([QUICK_WORKOUT_BUTTON])
-    keyboard.append([
-        InlineKeyboardButton("💤 Snooze 1h", callback_data="snooze_reminder"),
-        InlineKeyboardButton("🔄 Refresh", callback_data="refresh_today")
-    ])
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    text, markup = build_today_workout_view(workout, today_str, intro="\n".join(intro))
+    if workout["status"] == "pending":
+        markup = InlineKeyboardMarkup(list(markup.inline_keyboard) + [[
+            InlineKeyboardButton("💤 Snooze 1h", callback_data="snooze_reminder")]])
 
     try:
-        await bot.send_message(
-            chat_id=config.USER_ID,
-            text=msg,
-            parse_mode="Markdown",
-            reply_markup=reply_markup
-        )
+        await bot.send_message(chat_id=config.USER_ID, text=text, parse_mode=HTML, reply_markup=markup)
         logger.info(f"Daily workout notification sent successfully for {today_str}.")
     except Exception as e:
         logger.error(f"Error sending daily workout notification: {e}")
@@ -139,36 +98,17 @@ async def send_evening_nudge_notification(bot: Bot) -> None:
     if workout["status"] != "pending":
         return
 
-    incomplete_items = [
-        it for it in workout["items"]
-        if it["status"] == "pending" and it["completed_reps"] < it["target_reps"]
-    ]
-    if not incomplete_items:
+    if not any(it["status"] == "pending" and it["completed_reps"] < it["target_reps"]
+               for it in workout["items"]):
         return
 
-    current_streak, _ = calculate_streaks(today_str=today_str)
-    text = (
-        f"⏰ *Evening Streak-Saver Nudge!* ({today_str})\n\n"
-        f"Only a few hours left today! Don't let your *{current_streak}-day streak* break.\n\n"
-        "Remaining exercises:\n"
-    )
-    for it in incomplete_items:
-        text += f"• *{it['exercise_name']}*: {it['completed_reps']}/{it['target_reps']} {it['unit']}\n"
-
-    text += "\nTap below to finish your workout strong! 💪"
-    keyboard = [
-        [InlineKeyboardButton("⚡ Complete All as Scheduled", callback_data="complete_all")],
-        [InlineKeyboardButton("🏋️ Open Today's Workout", callback_data="refresh_today")]
-    ]
-    if not workout.get("quick"):
-        keyboard.append([QUICK_WORKOUT_BUTTON])
-
+    text, markup = build_evening_nudge(workout, today_str)
     try:
         await bot.send_message(
             chat_id=config.USER_ID,
             text=text,
-            parse_mode="Markdown",
-            reply_markup=InlineKeyboardMarkup(keyboard)
+            parse_mode=HTML,
+            reply_markup=markup
         )
         logger.info(f"Evening nudge sent for {today_str}.")
     except Exception as e:
@@ -232,9 +172,9 @@ async def send_weekly_summary(bot: Bot) -> None:
         partner = partner_service.shares("weekly")
         health_line = build_health_line()
         if partner:
-            health_line = f"🤝 Shared with {partner['name']}.\n\n{health_line}"
+            health_line = f"🤝 Shared with {esc(partner['name'])}.\n{health_line}"
         text = build_weekly_summary(health_line=health_line)
-        await bot.send_message(chat_id=config.USER_ID, text=text, parse_mode="Markdown")
+        await bot.send_message(chat_id=config.USER_ID, text=text, parse_mode=HTML)
         health.errors_since_summary = 0
         logger.info("Weekly summary sent.")
     except Exception as e:
@@ -244,7 +184,8 @@ async def send_weekly_summary(bot: Bot) -> None:
     if partner:
         # The partner's copy has no bot-health line (that's only for the owner).
         await partner_service.send_to_partner(
-            bot, f"🤝 *Weekly update from {partner_service.owner_name()}*\n\n{build_weekly_summary()}")
+            bot, f"🤝 <b>Weekly update from {esc(partner_service.owner_name())}</b>\n\n{build_weekly_summary()}",
+            parse_mode=HTML)
 
 async def send_monthly_test_reminder(bot: Bot) -> None:
     """On the 1st (and again on the 4th if still not done): time for the fitness test."""
@@ -283,7 +224,7 @@ async def check_missed_workouts(bot: Bot) -> None:
                 chat_id=config.USER_ID,
                 text=f"📣 {partner['name']} was told you missed {partner_service.MISSED_ALERT_AFTER} workouts "
                      "in a row. Let's get back to it today. Even ⏱ Short on Time counts!",
-                reply_markup=InlineKeyboardMarkup([[QUICK_WORKOUT_BUTTON]]))
+                reply_markup=InlineKeyboardMarkup([[quick_toggle_button(False)]]))
         except Exception as e:
             logger.error(f"Error sending missed-workouts notice: {e}")
 

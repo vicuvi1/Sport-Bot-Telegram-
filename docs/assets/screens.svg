@@ -9,35 +9,41 @@
 <text x="123" y="90" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="14" font-weight="600" fill="#e9edf2" text-anchor="start">Workout Bot</text>
 <text x="123" y="107" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="11" font-weight="400" fill="#6ab2f2" text-anchor="start">online</text>
 <rect x="79" y="136" width="312" height="238" rx="14" fill="#182533" />
-<text x="93" y="162" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="14" font-weight="700" fill="#e9edf2" text-anchor="start">Today's Workout — IN PROGRESS</text>
+<text x="93" y="162" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="14" font-weight="700" fill="#e9edf2" text-anchor="start">Today · Mon 12 Oct</text>
 <text x="93" y="190" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="13" font-weight="600" fill="#e9edf2" text-anchor="start">Push-ups</text>
-<text x="377" y="190" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="13" font-weight="400" fill="#8ea3b8" text-anchor="end">30/50</text>
+<text x="377" y="190" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="13" font-weight="400" fill="#8ea3b8" text-anchor="end">30 / 50</text>
 <rect x="93" y="198" width="284" height="7" rx="3.5" fill="#2b3a4a" />
 <rect x="93" y="198" width="170.4" height="7" rx="3.5" fill="#34d399" />
 <text x="93" y="228" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="13" font-weight="600" fill="#e9edf2" text-anchor="start">Squats</text>
-<text x="377" y="228" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="13" font-weight="400" fill="#8ea3b8" text-anchor="end">50/50  ✓</text>
+<text x="377" y="228" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="13" font-weight="400" fill="#8ea3b8" text-anchor="end">50 / 50  ✓</text>
 <rect x="93" y="236" width="284" height="7" rx="3.5" fill="#2b3a4a" />
 <rect x="93" y="236" width="284" height="7" rx="3.5" fill="#34d399" />
 <text x="93" y="266" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="13" font-weight="600" fill="#e9edf2" text-anchor="start">Sit-ups</text>
-<text x="377" y="266" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="13" font-weight="400" fill="#8ea3b8" text-anchor="end">0/30</text>
+<text x="377" y="266" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="13" font-weight="400" fill="#8ea3b8" text-anchor="end">0 / 30</text>
 <rect x="93" y="274" width="284" height="7" rx="3.5" fill="#2b3a4a" />
 <text x="93" y="304" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="13" font-weight="600" fill="#e9edf2" text-anchor="start">Plank</text>
-<text x="377" y="304" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="13" font-weight="400" fill="#8ea3b8" text-anchor="end">60/60 s  ✓</text>
+<text x="377" y="304" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="13" font-weight="400" fill="#8ea3b8" text-anchor="end">60 / 60 s  ✓</text>
 <rect x="93" y="312" width="284" height="7" rx="3.5" fill="#2b3a4a" />
 <rect x="93" y="312" width="284" height="7" rx="3.5" fill="#38bdf8" />
-<text x="93" y="348" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="13" font-weight="600" fill="#fbbf24" text-anchor="start">Streak: 12 days · best 21</text>
+<text x="93" y="348" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="13" font-weight="600" fill="#fbbf24" text-anchor="start">2 of 4 done · 12-day streak</text>
 <rect x="79" y="386" width="312" height="34" rx="9" fill="#22303f" />
-<text x="235.0" y="408.0" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="13" font-weight="600" fill="#e9edf2" text-anchor="middle">Complete All as Scheduled</text>
-<rect x="79" y="426" width="312" height="34" rx="9" fill="#22303f" />
-<text x="235.0" y="448.0" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="13" font-weight="600" fill="#e9edf2" text-anchor="middle">Push-ups (30/50)</text>
-<rect x="79" y="466" width="312" height="34" rx="9" fill="#22303f" />
-<text x="235.0" y="488.0" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="13" font-weight="600" fill="#e9edf2" text-anchor="middle">Sit-ups (0/30)</text>
+<text x="235.0" y="408.0" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="13" font-weight="600" fill="#e9edf2" text-anchor="middle">Complete all</text>
+<rect x="79" y="426" width="153.0" height="34" rx="9" fill="#22303f" />
+<text x="155.5" y="448.0" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="13" font-weight="600" fill="#e9edf2" text-anchor="middle">Push-ups · 30/50</text>
+<rect x="238.0" y="426" width="153.0" height="34" rx="9" fill="#22303f" />
+<text x="314.5" y="448.0" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="13" font-weight="600" fill="#e9edf2" text-anchor="middle">✓ Squats</text>
+<rect x="79" y="466" width="153.0" height="34" rx="9" fill="#22303f" />
+<text x="155.5" y="488.0" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="13" font-weight="600" fill="#e9edf2" text-anchor="middle">Sit-ups · 0/30</text>
+<rect x="238.0" y="466" width="153.0" height="34" rx="9" fill="#22303f" />
+<text x="314.5" y="488.0" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="13" font-weight="600" fill="#e9edf2" text-anchor="middle">✓ Plank</text>
 <rect x="79" y="506" width="312" height="34" rx="9" fill="#22303f" />
-<text x="235.0" y="528.0" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="13" font-weight="600" fill="#e9edf2" text-anchor="middle">Short on Time (50%)</text>
-<rect x="79" y="546" width="153.0" height="34" rx="9" fill="#22303f" />
-<text x="155.5" y="568.0" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="13" font-weight="600" fill="#e9edf2" text-anchor="middle">60s Rest</text>
-<rect x="238.0" y="546" width="153.0" height="34" rx="9" fill="#22303f" />
-<text x="314.5" y="568.0" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="13" font-weight="600" fill="#e9edf2" text-anchor="middle">90s Rest</text>
+<text x="235.0" y="528.0" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="13" font-weight="600" fill="#e9edf2" text-anchor="middle">Short on time (50%)</text>
+<rect x="79.0" y="546" width="100.0" height="34" rx="9" fill="#22303f" />
+<text x="129.0" y="568.0" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="13" font-weight="600" fill="#e9edf2" text-anchor="middle">Rest 60s</text>
+<rect x="185.0" y="546" width="100.0" height="34" rx="9" fill="#22303f" />
+<text x="235.0" y="568.0" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="13" font-weight="600" fill="#e9edf2" text-anchor="middle">Rest 90s</text>
+<rect x="291.0" y="546" width="100.0" height="34" rx="9" fill="#22303f" />
+<text x="341.0" y="568.0" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="13" font-weight="600" fill="#e9edf2" text-anchor="middle">↻</text>
 <text x="235.0" y="730" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="20" font-weight="700" fill="#f8fafc" text-anchor="middle">Log in one tap</text>
 <text x="235.0" y="756" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="14" font-weight="400" fill="#8ea3b8" text-anchor="middle">Progress bars, timers, Short on Time</text>
 <g filter="url(#shadow)"><rect x="460" y="50" width="360" height="640" rx="40" fill="#05090f"/></g>
@@ -48,7 +54,7 @@
 <text x="528" y="90" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="14" font-weight="600" fill="#e9edf2" text-anchor="start">Workout Bot</text>
 <text x="528" y="107" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="11" font-weight="400" fill="#6ab2f2" text-anchor="start">online</text>
 <rect x="484" y="136" width="312" height="150" rx="14" fill="#182533" />
-<text x="498" y="162" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="14" font-weight="700" fill="#e9edf2" text-anchor="start">Today's Workout — COMPLETED!</text>
+<text x="498" y="162" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="14" font-weight="700" fill="#e9edf2" text-anchor="start">Workout complete! · Mon 12 Oct</text>
 <text x="498" y="188" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="13" font-weight="400" fill="#e9edf2" text-anchor="start">✓  Push-ups</text>
 <text x="782" y="188" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="13" font-weight="400" fill="#8ea3b8" text-anchor="end">50/50</text>
 <text x="498" y="210" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="13" font-weight="400" fill="#e9edf2" text-anchor="start">✓  Squats</text>
@@ -66,7 +72,7 @@
 <text x="498" y="368" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="13" font-weight="700" fill="#34d399" text-anchor="start">Targets raised:</text>
 <text x="498" y="392" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="13" font-weight="400" fill="#e9edf2" text-anchor="start">Push-ups 50→55 · Squats 50→55</text>
 <rect x="484" y="424" width="312" height="186" rx="14" fill="#182533" />
-<text x="498" y="450" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="14" font-weight="700" fill="#e9edf2" text-anchor="start">Weekly Summary</text>
+<text x="498" y="450" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="14" font-weight="700" fill="#e9edf2" text-anchor="start">Your week · 6 – 12 Oct</text>
 <text x="498" y="476" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="13" font-weight="400" fill="#e9edf2" text-anchor="start">Workouts: 6/7  (+2 vs last week)</text>
 <text x="498" y="500" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="13" font-weight="400" fill="#e9edf2" text-anchor="start">Streak: 12 days (best 21)</text>
 <text x="498" y="528" font-family="Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="13" font-weight="700" fill="#fbbf24" text-anchor="start">New personal records</text>

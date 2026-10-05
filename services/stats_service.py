@@ -130,22 +130,33 @@ def get_stats_for_period(
         }
 
 def format_stats_message(stats: Dict[str, Any]) -> str:
-    """Formats statistics dictionary into a clean markdown message."""
-    from services.workout_service import render_progress_bar
-    period_title = stats.get("period_label", "Statistics")
-    msg = f"📊 *{period_title}*\n\n"
+    """Formats statistics as a Telegram HTML card."""
+    from views import bar, card, esc, nice_date, percent, unit_label  # views imports this package
+
+    if stats["period"] == "all" or not stats.get("start_date"):
+        subtitle = "since you started"
+    elif stats["start_date"] == stats["end_date"]:
+        subtitle = nice_date(stats["end_date"])
+    else:
+        subtitle = f"{nice_date(stats['start_date'])} – {nice_date(stats['end_date'])}"
+    lines = [f"📊 <b>{esc(stats.get('period_label', 'Statistics'))}</b> · {subtitle}", ""]
 
     if stats["exercises"]:
+        blocks = []
         for ex in stats["exercises"]:
-            bar = render_progress_bar(ex["completed"], ex["target"], length=8)
-            msg += f"• *{ex['name']}*\n"
-            msg += f"  `{bar}`\n  Goal: {ex['target']} {ex['unit']} | Completed: {ex['completed']} {ex['unit']}\n\n"
+            unit = esc(unit_label(ex["unit"]))
+            blocks.append(
+                f"<b>{esc(ex['name'])}</b>  {ex['completed']} / {ex['target']} {unit}\n"
+                f"{bar(ex['completed'], ex['target'])}  {percent(ex['completed'], ex['target'])}%"
+            )
+        lines.append(card(["\n\n".join(blocks)]))
     else:
-        msg += "_No workout records found for this period._\n\n"
+        lines.append("<i>No workouts logged in this period yet.</i>")
 
-    msg += f"🏋️ *Workouts Completed:* {stats['completed_workouts']}/{stats['scheduled_workouts']}\n"
-    msg += f"🔥 *Current Streak:* {stats['current_streak']} days\n"
-    msg += f"🏆 *Best Streak:* {stats['best_streak']} days\n"
-
-    return msg
+    lines += [
+        "",
+        f"🏋️ Workouts <b>{stats['completed_workouts']}/{stats['scheduled_workouts']}</b> · "
+        f"🔥 Streak <b>{stats['current_streak']}</b> · 🏆 Best <b>{stats['best_streak']}</b>",
+    ]
+    return "\n".join(lines)
 

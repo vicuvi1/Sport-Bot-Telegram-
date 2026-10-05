@@ -31,5 +31,5 @@ def test_stats_aggregation(test_db):
 
     # Format message test
     msg = format_stats_message(stats)
-    assert "*Workouts Completed:* 2/2" in msg
+    assert "Workouts <b>2/2</b>" in msg
     assert "Push-ups" in msg

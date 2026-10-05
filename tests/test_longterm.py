@@ -193,12 +193,12 @@ def test_weekly_summary_compares_weeks_and_finds_records():
     log_day("2026-10-07")
     text = build_weekly_summary(today_str="2026-10-11", health_line="🩺 Bot health: ok")
 
-    assert "Weekly Summary" in text
-    assert "Workouts: *2/2*" in text
-    assert "Push-ups: 110 reps (+70 vs last week)" in text
-    assert "New personal records" in text and "Push-ups: *60 reps* in a day (was 40)" in text
+    assert "<b>Your week</b> · Mon 5 Oct – Sun 11 Oct" in text
+    assert "Workouts  <b>2/2</b>" in text
+    assert "Push-ups  <b>110</b> reps (+70 vs last week)" in text
+    assert "New personal records" in text and "Push-ups: <b>60 reps</b> in a day (was 40)" in text
     assert "Perfect week" in text
-    assert text.endswith("🩺 Bot health: ok")
+    assert text.endswith("<i>🩺 Bot health: ok</i>")
 
 
 def test_first_week_has_no_records():

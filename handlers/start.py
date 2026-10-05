@@ -1,10 +1,14 @@
 import logging
+from datetime import datetime, timedelta
+
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ContextTypes
 
 import config
-from database import get_setting
-from services.workout_service import calculate_streaks
+from services import fitness_test_service as fts
+from services import partner_service as ps
+from services.workout_service import get_current_date_str, get_or_create_daily_workout, sanitize_label
+from views import build_home, esc, nice_date
 
 logger = logging.getLogger(__name__)
 
@@ -53,20 +57,29 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     # Used to address the accountability partner ("Victor finished...").
     remember_owner_name(update.effective_user.first_name)
 
-    current_streak, best_streak = calculate_streaks()
-    welcome_text = (
-        "👋 *Welcome to your Workout Tracker Bot!*\n\n"
-        "I'll help you track daily exercises, build consistency, and level up.\n\n"
-        f"🔥 *Current Streak:* {current_streak} days\n"
-        f"🏆 *Best Streak:* {best_streak} days\n\n"
-        "Use the buttons below to navigate:"
+    await update.message.reply_text(
+        build_home_text(update.effective_user.first_name),
+        reply_markup=get_main_menu_keyboard(),
+        parse_mode="HTML"
     )
 
-    await update.message.reply_text(
-        welcome_text,
-        reply_markup=get_main_menu_keyboard(),
-        parse_mode="Markdown"
-    )
+
+def build_home_text(first_name: str) -> str:
+    """The /start dashboard: today, this week, streak, and what's coming up."""
+    today_str = get_current_date_str()
+    workout = get_or_create_daily_workout(today_str)
+
+    extras = []
+    month = fts.current_month(today_str)
+    if fts.is_month_complete(month):
+        next_month = (datetime.strptime(month + "-01", "%Y-%m-%d") + timedelta(days=32)).strftime("%Y-%m-01")
+        extras.append(f"🧪 Next fitness test: {nice_date(next_month)}")
+    else:
+        extras.append("🧪 This month's fitness test is waiting: /test")
+    partner = ps.get_partner()
+    extras.append(f"🤝 Partner: <b>{esc(partner['name'])}</b>" if partner else "🤝 No partner yet: /partner")
+
+    return build_home(sanitize_label(first_name or "", max_length=30), workout, today_str, extras)
 
 async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles the /help command."""

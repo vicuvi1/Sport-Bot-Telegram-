@@ -868,7 +868,8 @@ def generate_workout_heatmap(
         workouts_map = {r["date"]: r["status"] for r in rows}
 
     paused_dates = get_paused_dates(db_path=db_path)
-    output = "📅 *Workout Heatmap (Last 4 Weeks)*\n\n` M   T   W   T   F   S   S`\n"
+    # Telegram HTML.
+    output = "📅 <b>Workout Heatmap</b> · last 4 weeks\n\n<code> M   T   W   T   F   S   S</code>\n"
 
     curr = start_date
     while curr <= end_date:
@@ -903,10 +904,8 @@ def generate_workout_heatmap(
         curr += timedelta(days=1)
 
     output += (
-        "\n*Legend:*\n"
-        "🟩 Done   🟨 Partial   ⬜ Rest\n"
-        "🟥 Missed ⏳ Today     ▫️ Future\n"
-        "🟦 Paused (vacation/sick)\n"
+        "\n<i>🟩 done · 🟨 partial · ⬜ rest · 🟦 paused\n"
+        "🟥 missed · ⏳ today · ▫️ coming up</i>"
     )
     return output
 

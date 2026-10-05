@@ -135,7 +135,7 @@ async def summary_command_handler(update: Update, context: ContextTypes.DEFAULT_
         return
     from scheduler import build_health_line
     text = build_weekly_summary(health_line=build_health_line())
-    await update.message.reply_text(text, parse_mode="Markdown")
+    await update.message.reply_text(text, parse_mode="HTML")
 
 async def backup_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles direct /backup command."""
@@ -235,13 +235,8 @@ async def web_app_data_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 
         today_str = get_current_date_str()
         workout = get_or_create_daily_workout(today_str)
-        text, markup = build_today_workout_view(workout, today_str)
-
-        await update.message.reply_text(
-            "📱 *Workout Synchronized via Mini App!*\n\nAll exercise progress has been saved to your local database.",
-            parse_mode="Markdown"
-        )
-        await update.message.reply_text(text, reply_markup=markup, parse_mode="Markdown")
+        text, markup = build_today_workout_view(workout, today_str, intro="📱 Synced from the Mini App.")
+        await update.message.reply_text(text, reply_markup=markup, parse_mode="HTML")
     except Exception as e:
         logger.error(f"Error handling web_app_data: {e}")
 

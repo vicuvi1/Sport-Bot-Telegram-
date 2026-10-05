@@ -10,6 +10,8 @@ import config
 from database import get_setting, set_setting, create_backup
 from handlers.start import is_authorized
 from handlers.workout import build_today_workout_view
+from services.partner_service import get_partner
+from views import HTML, card, esc, nice_date
 from scheduler import check_backup
 from services.workout_service import (
     get_exercises,
@@ -41,39 +43,43 @@ def build_settings_menu() -> tuple[str, InlineKeyboardMarkup]:
     exercises = get_exercises()
     active_count = sum(1 for e in exercises if e["is_active"] == 1)
 
-    notif_status = "🟢 Enabled" if notif_enabled else "🔴 Disabled"
-    prog_status = "🟢 Enabled" if prog_enabled else "🔴 Disabled"
     pause = get_active_pause()
-    pause_status = f"🟦 Paused until {pause['end_date']}" if pause else "Not paused"
+    partner = get_partner()
+    on_off = lambda on: "<b>On</b>" if on else "Off"  # noqa: E731
 
-    text = (
-        "⚙️ *Bot Settings & Configuration*\n\n"
-        f"• *Vacation / Sick Pause:* {pause_status}\n"
-        f"• *Notifications:* {notif_status}\n"
-        f"• *Daily Workout Time:* `{workout_time}` ({timezone})\n"
-        f"• *Auto Progression:* {prog_status} (+{prog_pct}% after {consec} workouts)\n"
-        f"• *Exercises:* {active_count} active / {len(exercises)} total\n\n"
-        "Select an option below to customize:"
-    )
-
-    notif_btn_label = "🔔 Turn Notifications OFF" if notif_enabled else "🔔 Turn Notifications ON"
-    prog_btn_label = "🚀 Turn Progression OFF" if prog_enabled else "🚀 Turn Progression ON"
+    text = "\n".join([
+        "⚙️ <b>Settings</b>",
+        "",
+        card([
+            f"🔔 Reminders  {on_off(notif_enabled)} · {esc(workout_time)} <i>({esc(timezone)})</i>",
+            f"🏋️ Exercises  <b>{active_count}</b> active of {len(exercises)}",
+            f"🚀 Auto-progression  {on_off(prog_enabled)} · +{esc(prog_pct)}% after {esc(consec)} workouts",
+            f"🏖 Pause  " + (f"<b>until {nice_date(pause['end_date'])}</b>" if pause else "Off"),
+            f"🤝 Partner  " + (f"<b>{esc(partner['name'])}</b>" if partner else "None"),
+        ]),
+    ])
 
     keyboard = [
-        [InlineKeyboardButton("🏖 Vacation / Sick Pause", callback_data="menu_pause")],
         [
+            InlineKeyboardButton("🔔 Reminders: " + ("On" if notif_enabled else "Off"), callback_data="toggle_notif"),
+            InlineKeyboardButton(f"⏰ {workout_time}", callback_data="menu_time"),
+        ],
+        [
+            InlineKeyboardButton("🏋️ Exercises", callback_data="menu_exercises"),
+            InlineKeyboardButton("🌍 Timezone", callback_data="menu_timezone"),
+        ],
+        [
+            InlineKeyboardButton("🚀 Progression: " + ("On" if prog_enabled else "Off"), callback_data="toggle_prog"),
+            InlineKeyboardButton(f"📈 +{prog_pct}%", callback_data="menu_prog_pct"),
+        ],
+        [
+            InlineKeyboardButton("🏖 Pause", callback_data="menu_pause"),
             InlineKeyboardButton("🤝 Partner", callback_data="partner_menu"),
-            InlineKeyboardButton("🧪 Fitness Test", callback_data="test_menu"),
         ],
-        [InlineKeyboardButton(notif_btn_label, callback_data="toggle_notif")],
         [
-            InlineKeyboardButton(f"⏰ Time: {workout_time}", callback_data="menu_time"),
-            InlineKeyboardButton("🌍 Timezone", callback_data="menu_timezone")
+            InlineKeyboardButton("🧪 Fitness test", callback_data="test_menu"),
+            InlineKeyboardButton("💾 Backup", callback_data="backup_db"),
         ],
-        [InlineKeyboardButton(prog_btn_label, callback_data="toggle_prog")],
-        [InlineKeyboardButton(f"📈 Progression Increase (+{prog_pct}%)", callback_data="menu_prog_pct")],
-        [InlineKeyboardButton("🏋️ Manage Exercises & Targets", callback_data="menu_exercises")],
-        [InlineKeyboardButton("💾 Backup Database", callback_data="backup_db")],
     ]
 
     return text, InlineKeyboardMarkup(keyboard)
@@ -137,9 +143,9 @@ async def settings_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     text, markup = build_settings_menu()
     if update.message:
-        await update.message.reply_text(text, reply_markup=markup, parse_mode="Markdown")
+        await update.message.reply_text(text, reply_markup=markup, parse_mode=HTML)
     elif update.callback_query:
-        await update.callback_query.edit_message_text(text, reply_markup=markup, parse_mode="Markdown")
+        await update.callback_query.edit_message_text(text, reply_markup=markup, parse_mode=HTML)
 
 async def settings_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Dispatches all configuration button callbacks."""
@@ -152,7 +158,7 @@ async def settings_callback_handler(update: Update, context: ContextTypes.DEFAUL
 
     if data == "menu_settings":
         text, markup = build_settings_menu()
-        await query.edit_message_text(text, reply_markup=markup, parse_mode="Markdown")
+        await query.edit_message_text(text, reply_markup=markup, parse_mode=HTML)
         return
 
     if data == "menu_pause":
@@ -180,9 +186,9 @@ async def settings_callback_handler(update: Update, context: ContextTypes.DEFAUL
         resumed = resume_from_pause()
         today_str = get_current_date_str()
         workout = get_or_create_daily_workout(today_str)
-        text, markup = build_today_workout_view(workout, today_str)
-        notice = "▶️ *Welcome back! Reminders are on again.*\n\n" if resumed else ""
-        await query.edit_message_text(notice + text, reply_markup=markup, parse_mode="Markdown")
+        intro = "▶️ <b>Welcome back!</b> Reminders are on again." if resumed else ""
+        text, markup = build_today_workout_view(workout, today_str, intro=intro)
+        await query.edit_message_text(text, reply_markup=markup, parse_mode=HTML)
         return
 
     if data == "toggle_notif":
@@ -190,7 +196,7 @@ async def settings_callback_handler(update: Update, context: ContextTypes.DEFAUL
         new_val = "0" if current == "1" else "1"
         set_setting("notifications_enabled", new_val)
         text, markup = build_settings_menu()
-        await query.edit_message_text(text, reply_markup=markup, parse_mode="Markdown")
+        await query.edit_message_text(text, reply_markup=markup, parse_mode=HTML)
         return
 
     if data == "toggle_prog":
@@ -198,7 +204,7 @@ async def settings_callback_handler(update: Update, context: ContextTypes.DEFAUL
         new_val = "1" if current == "0" else "0"
         set_setting("auto_progression_enabled", new_val)
         text, markup = build_settings_menu()
-        await query.edit_message_text(text, reply_markup=markup, parse_mode="Markdown")
+        await query.edit_message_text(text, reply_markup=markup, parse_mode=HTML)
         return
 
     if data == "menu_prog_pct":
@@ -218,7 +224,7 @@ async def settings_callback_handler(update: Update, context: ContextTypes.DEFAUL
         pct = data.split(":")[1]
         set_setting("progression_percentage", pct)
         text, markup = build_settings_menu()
-        await query.edit_message_text(text, reply_markup=markup, parse_mode="Markdown")
+        await query.edit_message_text(text, reply_markup=markup, parse_mode=HTML)
         return
 
     if data == "menu_time":
@@ -246,7 +252,7 @@ async def settings_callback_handler(update: Update, context: ContextTypes.DEFAUL
             from scheduler import reschedule_daily_job
             reschedule_daily_job(scheduler, context.bot)
         text, markup = build_settings_menu()
-        await query.edit_message_text(text, reply_markup=markup, parse_mode="Markdown")
+        await query.edit_message_text(text, reply_markup=markup, parse_mode=HTML)
         return
 
     if data == "set_time_custom":
@@ -286,7 +292,7 @@ async def settings_callback_handler(update: Update, context: ContextTypes.DEFAUL
             from scheduler import reschedule_daily_job
             reschedule_daily_job(scheduler, context.bot)
         text, markup = build_settings_menu()
-        await query.edit_message_text(text, reply_markup=markup, parse_mode="Markdown")
+        await query.edit_message_text(text, reply_markup=markup, parse_mode=HTML)
         return
 
     if data == "set_tz_custom":
@@ -439,7 +445,7 @@ async def settings_text_input_handler(update: Update, context: ContextTypes.DEFA
         context.user_data.pop("awaiting_setting", None)
         await update.message.reply_text("❌ Configuration change cancelled.")
         settings_text, markup = build_settings_menu()
-        await update.message.reply_text(settings_text, reply_markup=markup, parse_mode="Markdown")
+        await update.message.reply_text(settings_text, reply_markup=markup, parse_mode=HTML)
         return True
 
     if setting_key == "pause_custom":
@@ -475,7 +481,7 @@ async def settings_text_input_handler(update: Update, context: ContextTypes.DEFA
 
         await update.message.reply_text(f"✅ Notification time updated to `{formatted_time}`.", parse_mode="Markdown")
         s_text, markup = build_settings_menu()
-        await update.message.reply_text(s_text, reply_markup=markup, parse_mode="Markdown")
+        await update.message.reply_text(s_text, reply_markup=markup, parse_mode=HTML)
         return True
 
     if setting_key == "timezone":
@@ -496,7 +502,7 @@ async def settings_text_input_handler(update: Update, context: ContextTypes.DEFA
 
         await update.message.reply_text(f"✅ Timezone updated to `{text}`.", parse_mode="Markdown")
         s_text, markup = build_settings_menu()
-        await update.message.reply_text(s_text, reply_markup=markup, parse_mode="Markdown")
+        await update.message.reply_text(s_text, reply_markup=markup, parse_mode=HTML)
         return True
 
     if setting_key.startswith("target_ex:"):
@@ -514,7 +520,7 @@ async def settings_text_input_handler(update: Update, context: ContextTypes.DEFA
         ex = get_exercise_by_id(ex_id)
         await update.message.reply_text(f"✅ Target for *{ex['name']}* updated to *{new_target} {ex['unit']}*.", parse_mode="Markdown")
         s_text, markup = build_settings_menu()
-        await update.message.reply_text(s_text, reply_markup=markup, parse_mode="Markdown")
+        await update.message.reply_text(s_text, reply_markup=markup, parse_mode=HTML)
         return True
 
     if setting_key == "add_exercise":
@@ -553,7 +559,7 @@ async def settings_text_input_handler(update: Update, context: ContextTypes.DEFA
         context.user_data.pop("awaiting_setting", None)
         await update.message.reply_text(f"✅ Successfully added *{name}* ({target} {unit}) to your workout catalog!", parse_mode="Markdown")
         s_text, markup = build_settings_menu()
-        await update.message.reply_text(s_text, reply_markup=markup, parse_mode="Markdown")
+        await update.message.reply_text(s_text, reply_markup=markup, parse_mode=HTML)
         return True
 
     return False

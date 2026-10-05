@@ -73,7 +73,12 @@ def _delta(now: int, before: int) -> str:
 
 def build_weekly_summary(today_str: Optional[str] = None, health_line: str = "",
                          db_path: Optional[Path] = None) -> str:
-    """Builds the weekly summary message (Markdown)."""
+    """Builds the weekly summary message (Telegram HTML).
+
+    `health_line` is HTML too (callers escape any names in it).
+    """
+    from views import card, esc, nice_date, unit_label  # views imports this package
+
     today_str = today_str or get_current_date_str(db_path=db_path)
     start, end = week_bounds(today_str)
     prev_start, prev_end = week_bounds(
@@ -85,26 +90,28 @@ def build_weekly_summary(today_str: Optional[str] = None, health_line: str = "",
     current_streak, best_streak = calculate_streaks(today_str=today_str, db_path=db_path)
     paused = sum(1 for d in get_paused_dates(db_path=db_path) if start <= d <= end)
 
-    lines = [f"📆 *Weekly Summary* ({start} → {end})", ""]
-    lines.append(
-        f"🏋️ Workouts: *{this_week['done']}/{this_week['scheduled']}*"
-        + _delta(this_week["done"], last_week["done"])
-    )
+    overview = [
+        f"🏋️ Workouts  <b>{this_week['done']}/{this_week['scheduled']}</b>"
+        + _delta(this_week["done"], last_week["done"]),
+        f"🔥 Streak  <b>{current_streak}</b> days · best {best_streak}",
+    ]
     if paused:
-        lines.append(f"🟦 Paused days: {paused}")
-    lines.append(f"🔥 Streak: *{current_streak} days* (best {best_streak})")
+        overview.append(f"🟦 Paused  {paused} day{'s' if paused != 1 else ''}")
+    lines = [f"📆 <b>Your week</b> · {nice_date(start)} – {nice_date(end)}", "", card(overview)]
 
     if this_week["totals"]:
-        lines += ["", "*This week's totals*"]
+        totals = []
         for (name, unit), total in sorted(this_week["totals"].items()):
             before = last_week["totals"].get((name, unit), 0)
-            lines.append(f"• {name}: {total} {unit}{_delta(total, before)}")
+            totals.append(f"{esc(name)}  <b>{total}</b> {esc(unit_label(unit))}{_delta(total, before)}")
+        lines += ["", "<b>Totals</b>", card(totals)]
 
     records = get_new_records(start, end, db_path)
     if records:
-        lines += ["", "🏅 *New personal records*"]
+        lines += ["", "🏅 <b>New personal records</b>"]
         for r in records:
-            lines.append(f"• {r['name']}: *{r['value']} {r['unit']}* in a day (was {r['previous']})")
+            lines.append(f"• {esc(r['name'])}: <b>{r['value']} {esc(unit_label(r['unit']))}</b> "
+                         f"in a day (was {r['previous']})")
 
     if this_week["scheduled"] and this_week["done"] == this_week["scheduled"]:
         lines += ["", "🌟 Perfect week. Every scheduled workout done!"]
@@ -112,5 +119,5 @@ def build_weekly_summary(today_str: Optional[str] = None, health_line: str = "",
         lines += ["", "💪 New week, fresh start. Even one workout tomorrow restarts the habit."]
 
     if health_line:
-        lines += ["", health_line]
+        lines += ["", f"<i>{health_line}</i>"]
     return "\n".join(lines)

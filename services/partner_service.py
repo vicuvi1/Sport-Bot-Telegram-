@@ -137,9 +137,9 @@ def can_cheer_today(today_str: Optional[str] = None, db_path: Optional[Path] = N
 CHEER_CALLBACK = "partner_cheer"
 
 
-async def send_to_partner(bot, text: str, with_cheer: bool = True,
+async def send_to_partner(bot, text: str, with_cheer: bool = True, parse_mode: str = "Markdown",
                           db_path: Optional[Path] = None) -> bool:
-    """Sends a Markdown message to the partner, optionally with a high-five button.
+    """Sends a message to the partner, optionally with a high-five button.
 
     Failures (e.g. the partner blocked the bot) are logged as warnings: they
     are not bot errors and must not trigger error reports.
@@ -155,7 +155,7 @@ async def send_to_partner(bot, text: str, with_cheer: bool = True,
             f"👏 Send {owner_name(db_path)} a High-Five", callback_data=CHEER_CALLBACK)]])
     try:
         await bot.send_message(chat_id=partner["chat_id"], text=text,
-                               parse_mode="Markdown", reply_markup=markup)
+                               parse_mode=parse_mode, reply_markup=markup)
         return True
     except Exception as e:
         logger.warning("Could not message accountability partner: %s", e)

@@ -48,7 +48,7 @@ def test_generate_workout_heatmap(test_db):
     heatmap = generate_workout_heatmap(weeks_count=4, today_str="2026-10-01", db_path=test_db)
     assert "Workout Heatmap" in heatmap
     assert "M   T   W   T   F   S   S" in heatmap
-    assert "Legend:" in heatmap
+    assert "🟩 done" in heatmap
 
 def test_user_badges_earned_and_progress(test_db):
     # Before workout: First Step is not unlocked

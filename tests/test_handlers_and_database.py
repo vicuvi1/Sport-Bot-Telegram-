@@ -44,7 +44,7 @@ def test_main_menu_keyboard():
 def test_today_workout_view(test_db):
     workout = get_or_create_daily_workout("2026-10-01", db_path=test_db)
     text, markup = build_today_workout_view(workout, "2026-10-01")
-    assert "Today's Workout" in text
+    assert "<b>Today</b>" in text
     assert len(markup.inline_keyboard) > 0
 
 def test_exercise_detail_view(test_db):
@@ -52,13 +52,13 @@ def test_exercise_detail_view(test_db):
     item = workout["items"][0]
     text, markup = build_exercise_detail_view(item)
     assert item["exercise_name"] in text
-    assert "*Goal:*" in text
+    assert f"/ {item['target_reps']}" in text
     assert str(item["target_reps"]) in text
 
 def test_settings_menu_rendering(test_db):
     text, markup = build_settings_menu()
-    assert "Bot Settings & Configuration" in text
-    assert any("Notifications" in btn.text for row in markup.inline_keyboard for btn in row)
+    assert "<b>Settings</b>" in text
+    assert any("Reminders" in btn.text for row in markup.inline_keyboard for btn in row)
 
 def test_database_backup(test_db, tmp_path):
     backup_dir = tmp_path / "backups"

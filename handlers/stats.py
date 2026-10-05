@@ -11,50 +11,90 @@ from services.workout_service import (
     get_user_badges,
     export_workouts_csv
 )
+from views import HTML, card, esc, nice_date, unit_label
 
 logger = logging.getLogger(__name__)
 
+PERIODS = [("Today", "today"), ("Week", "week"), ("Month", "month"), ("All", "all")]
+BACK_TO_STATS = [InlineKeyboardButton("← Back to stats", callback_data="stats_period:week")]
+
+
 def build_stats_keyboard(active_period: str = "week") -> InlineKeyboardMarkup:
-    """Creates buttons for selecting time periods and extra analytics."""
-    periods = [
-        ("📅 Today", "today"),
-        ("📊 This Week", "week"),
-        ("🗓 This Month", "month"),
-        ("🏆 All Time", "all"),
+    """Period switcher (active one marked) plus badges, heatmap and export."""
+    period_row = [
+        InlineKeyboardButton(f"• {label} •" if key == active_period else label,
+                             callback_data=f"stats_period:{key}")
+        for label, key in PERIODS
     ]
-    period_row = []
-    for label, period_key in periods:
-        text = f"• {label} •" if period_key == active_period else label
-        period_row.append(InlineKeyboardButton(text, callback_data=f"stats_period:{period_key}"))
-
-    extra_row_1 = [
-        InlineKeyboardButton("🏆 Milestones & Badges", callback_data="stats_show_badges"),
-        InlineKeyboardButton("📅 4-Week Heatmap", callback_data="stats_show_heatmap")
-    ]
-    extra_row_2 = [
-        InlineKeyboardButton("📤 Export CSV", callback_data="stats_export_csv")
-    ]
-
     return InlineKeyboardMarkup([
-        period_row[:2],
-        period_row[2:],
-        extra_row_1,
-        extra_row_2
+        period_row,
+        [
+            InlineKeyboardButton("🏆 Badges", callback_data="stats_show_badges"),
+            InlineKeyboardButton("📅 Heatmap", callback_data="stats_show_heatmap"),
+        ],
+        [InlineKeyboardButton("📤 Export CSV", callback_data="stats_export_csv")],
     ])
+
+
+def build_badges_text() -> str:
+    badges = get_user_badges()
+    unlocked = sum(1 for b in badges if b["unlocked"])
+    blocks = []
+    # Unlocked first: what you've achieved, then what's next.
+    for b in sorted(badges, key=lambda b: not b["unlocked"]):
+        if b["unlocked"]:
+            blocks.append(f"{b['icon']} <b>{esc(b['name'])}</b> ✓\n<i>{esc(b['desc'])}</i>")
+        else:
+            blocks.append(f"🔒 <b>{esc(b['name'])}</b> · {esc(b['progress'])}\n<i>{esc(b['desc'])}</i>")
+    return f"🏆 <b>Badges</b> · {unlocked} of {len(badges)} unlocked\n\n" + card(["\n\n".join(blocks)])
+
+
+STATUS_TAGS = {
+    "completed": "✅ done",
+    "skipped": "⏭ skipped",
+    "rest": "🌿 rest day",
+    "pending": "🟥 not finished",
+    "paused": "🟦 paused",
+}
+
+
+def build_history_text() -> str:
+    """Heatmap plus the last 7 days, with per-exercise detail folded away."""
+    lines = [generate_workout_heatmap(), "", "<b>Recent days</b>"]
+    history = get_history(limit=7)
+    today_str = get_current_date_str()
+    if not history:
+        lines.append("<i>Nothing logged yet. Start with /today!</i>")
+        return "\n".join(lines)
+
+    entries = []
+    for w in history:
+        tag = "⏳ today" if w["date"] == today_str and w["status"] == "pending" else STATUS_TAGS.get(w["status"], w["status"])
+        entry = f"<b>{nice_date(w['date'])}</b> · {tag}"
+        if w["items"]:
+            entry += "\n" + " · ".join(
+                f"{esc(it['exercise_name'])} {it['completed_reps']}/{it['target_reps']}"
+                + ("" if it["unit"] == "reps" else esc(unit_label(it["unit"])))
+                for it in w["items"]
+            )
+        entries.append(entry)
+    lines.append(card(["\n\n".join(entries)], expandable=True))
+    return "\n".join(lines)
+
 
 async def stats_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles the /progress, /stats commands or '📊 Progress' button."""
     if not is_authorized(update):
         return
 
-    stats = get_stats_for_period("week")
-    msg_text = format_stats_message(stats)
+    msg_text = format_stats_message(get_stats_for_period("week"))
     markup = build_stats_keyboard(active_period="week")
 
     if update.message:
-        await update.message.reply_text(msg_text, reply_markup=markup, parse_mode="Markdown")
+        await update.message.reply_text(msg_text, reply_markup=markup, parse_mode=HTML)
     elif update.callback_query:
-        await update.callback_query.edit_message_text(msg_text, reply_markup=markup, parse_mode="Markdown")
+        await update.callback_query.edit_message_text(msg_text, reply_markup=markup, parse_mode=HTML)
+
 
 async def stats_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles switching statistics time period or viewing extra analytics."""
@@ -67,106 +107,57 @@ async def stats_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
     data = query.data
     if data.startswith("stats_period:"):
         period = data.split(":")[1]
-        stats = get_stats_for_period(period)
-        msg_text = format_stats_message(stats)
-        markup = build_stats_keyboard(active_period=period)
-        await query.edit_message_text(msg_text, reply_markup=markup, parse_mode="Markdown")
+        msg_text = format_stats_message(get_stats_for_period(period))
+        await query.edit_message_text(msg_text, reply_markup=build_stats_keyboard(active_period=period),
+                                      parse_mode=HTML)
         return
 
     if data == "stats_show_heatmap":
-        heatmap_text = generate_workout_heatmap()
-        keyboard = [[InlineKeyboardButton("⬅️ Back to Stats", callback_data="stats_period:week")]]
-        await query.edit_message_text(heatmap_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        await query.edit_message_text(generate_workout_heatmap(), reply_markup=InlineKeyboardMarkup([BACK_TO_STATS]),
+                                      parse_mode=HTML)
         return
 
     if data == "stats_show_badges":
-        badges = get_user_badges()
-        text = "🏆 *Your Workout Badges & Milestones*\n\n"
-        for b in badges:
-            status = "✅ *UNLOCKED*" if b["unlocked"] else f"🔒 *LOCKED* ({b['progress']})"
-            text += f"{b['icon']} *{b['name']}* — {status}\n  _{b['desc']}_\n\n"
-
-        keyboard = [[InlineKeyboardButton("⬅️ Back to Stats", callback_data="stats_period:week")]]
-        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        await query.edit_message_text(build_badges_text(), reply_markup=InlineKeyboardMarkup([BACK_TO_STATS]),
+                                      parse_mode=HTML)
         return
 
     if data == "stats_export_csv":
-        csv_file = export_workouts_csv()
-        try:
-            with open(csv_file, "rb") as f:
-                await query.message.reply_document(
-                    document=f,
-                    filename=csv_file.name,
-                    caption="📤 *Workout History Export (CSV)*\n\nCompatible with Microsoft Excel, Apple Numbers, and Google Sheets.",
-                    parse_mode="Markdown"
-                )
-        except Exception as e:
-            logger.error(f"Failed to send CSV: {e}")
-            await query.message.reply_text(f"⚠️ Error exporting CSV: {e}")
+        await send_csv_export(query.message)
         return
+
+
+async def send_csv_export(message) -> None:
+    csv_file = export_workouts_csv()
+    try:
+        with open(csv_file, "rb") as f:
+            await message.reply_document(
+                document=f,
+                filename=csv_file.name,
+                caption="📤 <b>Your workout history</b>\nOpens in Excel, Numbers and Google Sheets.",
+                parse_mode=HTML
+            )
+    except Exception as e:
+        logger.error(f"Failed to send CSV: {e}")
+        await message.reply_text("⚠️ Couldn't create the export. The error was reported.")
+
 
 async def badges_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles /badges command directly."""
     if not is_authorized(update):
         return
+    await update.message.reply_text(build_badges_text(), parse_mode=HTML)
 
-    badges = get_user_badges()
-    text = "🏆 *Your Workout Badges & Milestones*\n\n"
-    for b in badges:
-        status = "✅ *UNLOCKED*" if b["unlocked"] else f"🔒 *LOCKED* ({b['progress']})"
-        text += f"{b['icon']} *{b['name']}* — {status}\n  _{b['desc']}_\n\n"
-
-    await update.message.reply_text(text, parse_mode="Markdown")
 
 async def export_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles /export command directly."""
     if not is_authorized(update):
         return
+    await send_csv_export(update.message)
 
-    csv_file = export_workouts_csv()
-    try:
-        with open(csv_file, "rb") as f:
-            await update.message.reply_document(
-                document=f,
-                filename=csv_file.name,
-                caption="📤 *Workout History Export (CSV)*\n\nCompatible with Microsoft Excel, Apple Numbers, and Google Sheets.",
-                parse_mode="Markdown"
-            )
-    except Exception as e:
-        logger.error(f"Failed to send CSV: {e}")
-        await update.message.reply_text(f"⚠️ Error exporting CSV: {e}")
 
 async def history_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles /history command or '📅 History' button with visual heatmap."""
     if not is_authorized(update):
         return
-
-    # First add the heatmap
-    heatmap_text = generate_workout_heatmap()
-
-    history = get_history(limit=7)
-    msg = heatmap_text + "\n━━━━━━━━━━━━━━━━━━━━\n\n"
-    msg += "📅 *Recent Workouts (Last 7 Days)*\n\n"
-
-    if not history:
-        msg += "_No past workouts recorded yet. Start tracking with /today!_"
-    else:
-        for w in history:
-            status_tag = {
-                "completed": "✅ Completed",
-                "skipped": "⏭ Skipped",
-                "rest": "🏖 Rest Day",
-                "pending": "⏳ Incomplete",
-                "paused": "🟦 Paused"
-            }.get(w["status"], w["status"].capitalize())
-
-            msg += f"🗓 *{w['date']}* — {status_tag}\n"
-            if w["items"]:
-                for it in w["items"]:
-                    item_icon = "✅" if it["status"] == "completed" else ("⏭" if it["status"] == "skipped" else "⏳")
-                    msg += f"  {item_icon} {it['exercise_name']}: {it['completed_reps']}/{it['target_reps']} {it['unit']}\n"
-            elif w["status"] == "rest":
-                msg += "  _Scheduled rest day_\n"
-            msg += "\n"
-
-    await update.message.reply_text(msg, parse_mode="Markdown")
+    await update.message.reply_text(build_history_text(), parse_mode=HTML)
