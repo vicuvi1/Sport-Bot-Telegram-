@@ -1,337 +1,246 @@
-# 🏋️ Telegram Workout Tracker Bot
-
 <p align="center">
-  <img src="https://img.shields.io/badge/Python-3.11%20|%203.12%20|%203.14-blue?style=for-the-badge&logo=python&logoColor=white" alt="Python Version" />
-  <img src="https://img.shields.io/badge/Telegram%20Bot%20API-v20%2B-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white" alt="Telegram API" />
-  <img src="https://img.shields.io/badge/Database-SQLite3-003B57?style=for-the-badge&logo=sqlite&logoColor=white" alt="SQLite" />
-  <img src="https://img.shields.io/badge/Scheduling-APScheduler-orange?style=for-the-badge" alt="APScheduler" />
-  <img src="https://img.shields.io/badge/AI%20Dependencies-None%20(Pure%20Python)-success?style=for-the-badge" alt="Zero AI" />
-  <img src="https://img.shields.io/badge/Tests-165%20Passing-brightgreen?style=for-the-badge" alt="Tests" />
+  <img src="docs/assets/banner.svg" alt="Workout Tracker Bot: your private coach that adapts to you, keeps you honest, and runs for years" width="100%">
 </p>
 
 <p align="center">
-  <b>A private, high-reliability Telegram bot to track daily bodyweight workouts, build unbreakable habits, monitor streaks, and level up your fitness.</b>
+  <img src="https://img.shields.io/badge/python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.11+">
+  <img src="https://img.shields.io/badge/telegram-bot-26A5E4?style=flat-square&logo=telegram&logoColor=white" alt="Telegram bot">
+  <img src="https://img.shields.io/badge/tests-165%20passing-22c55e?style=flat-square" alt="165 tests passing">
+  <img src="https://img.shields.io/badge/AI-none%2C%20no%20API%20keys-0ea5e9?style=flat-square" alt="No AI, no API keys">
+  <img src="https://img.shields.io/badge/license-MIT-a855f7?style=flat-square" alt="MIT license">
+</p>
+
+<p align="center">
+  <b>A self-hosted Telegram bot that turns daily bodyweight workouts into a habit,<br>
+  adapts your targets as you get stronger, and proves it with real numbers.</b>
+</p>
+
+<p align="center">
+  <a href="#-quick-start">Quick start</a> ·
+  <a href="#-what-it-does">Features</a> ·
+  <a href="#-commands">Commands</a> ·
+  <a href="#-run-it-247-on-a-server">Deploy</a> ·
+  <a href="#-faq">FAQ</a>
 </p>
 
 ---
 
-## 🌟 Why This Bot?
+## 💡 Why this bot?
 
-Most workout apps are bloated with paid subscriptions, complex UI, or unnecessary AI chat integrations. This bot is engineered to be **lightweight, private, and zero-friction**:
+Most workout apps want a subscription, an account, and your data. This one lives in the chat app you already open fifty times a day, and **everything stays on your own server**.
 
-- 🔒 **Private & Secure:** Only your configured `TELEGRAM_USER_ID` can interact with the bot. All other Telegram users are completely ignored.
-- ⚡ **Zero AI Dependencies:** 100% deterministic, robust Python logic. No API keys from OpenAI, Claude, or Gemini required.
-- 💾 **Local First & Self-Hosted:** Data lives in a local SQLite file (`data/workout.db`). Includes one-tap manual backups and automated weekly Sunday backups delivered directly to your Telegram chat.
-- ⏱ **Frictionless Logging:** Complete your workout in **1 tap** with *Complete All as Scheduled*, or use quick increment buttons (`+5`, `+10`, `+25`), built-in rest timers, and plank countdown alerts.
+| | |
+| :--- | :--- |
+| 🎯 **It adapts to you** | Tell it a workout was *too easy* or *too hard* and your targets change. After a break it eases you back in at 70% → 85% → 100%. |
+| 🧪 **It proves you're changing** | A 10-minute fitness test on the 1st of every month: *push-ups 18 → 24 → 31*. Real numbers, not just streaks. |
+| 🤝 **It keeps you honest** | Invite a friend as your accountability partner: they get your weekly summary and can send you 👏 high-fives. |
+| 🛡 **It runs for years** | Verified backups, error reports in Telegram, an optional outside alarm if the server dies, and 165 automated tests. |
+| 🔒 **It's yours** | One authorized user, a local SQLite file, no AI, no API keys, no tracking. |
 
----
-
-## ✨ Features at a Glance
-
-### 1. 🏋️ Morning Workouts & Smart Logging
-* **Automated Morning Delivery:** Automatically receives today's workout plan at your preferred hour (default `07:00` in `Europe/Chisinau`).
-* **Live Progress Indicators:** Visual Unicode progress bars for each exercise (`[████████░░] 80%`).
-* **1-Tap Fast-Track:** `[⚡ Complete All as Scheduled]` marks all daily targets completed in a single click.
-* **Granular Controls:** Increment/decrement buttons (`➕ +5`, `➕ +10`, `➖ -5`), quick target done, custom amount input (e.g. entered `65` on target `50`), or skip.
-* **Built-in Rest & Stopwatch Timers:** Tap `[⏱ 60s Rest]` or `[⏱ 90s Rest]` to trigger background timers with alert notifications when your rest interval finishes.
-
-### 2. 📅 4-Week GitHub-Style Heatmap & History
-Review your workout consistency in `/history` or `/stats` with a visual calendar grid:
-```text
-📅 Workout Heatmap (Last 4 Weeks)
-
-` M   T   W   T   F   S   S`
- 🟩  🟩  🟩  🟩  🟩  ⬜  🟩
- 🟩  🟩  🟨  🟩  🟩  🟩  🟩
- 🟩  🟩  🟩  🟩  🟩  ⬜  🟩
- 🟩  🟩  ⏳  ▫️  ▫️  ▫️  ▫️
-
-Legend:
-🟩 Done   🟨 Partial   ⬜ Rest
-🟥 Missed ⏳ Today     ▫️ Future
-```
-
-### 3. 🔥 Intelligent Streak Engine
-* Calculates **Current Streak** and **All-Time Best Streak**.
-* **Rest Days Never Break Streaks:** Scheduled rest days preserve your hard-earned streak without penalties.
-* **In-Progress Protection:** An incomplete workout today does not break your streak while the day is still active.
-
-### 4. 🏆 Gamification & Milestones (`/badges`)
-Track lifetime fitness milestones with built-in badges:
-- 🌱 **First Step:** Complete your first workout.
-- 🔥 **Consistent 7:** Achieve a 7-day workout streak.
-- 🏆 **Iron Habit 30:** Achieve a 30-day streak.
-- 🥉 **Century Club:** Complete 100 reps of any exercise.
-- 🥇 **Titan 1,000:** Reach 1,000 total lifetime repetitions.
-- ⚡ **Early Bird:** Finish a workout before 09:00 AM.
-- 🛡️ **Weekend Warrior:** Log workouts on both Saturday and Sunday.
-
-### 5. ⏰ Evening Streak-Saver Nudges & Habit Reminders
-* At **19:00 (7 PM)**, if today's workout is still pending, the bot sends a gentle nudge with only the unfinished exercises so you never drop a streak.
-* Includes a `[💤 Snooze 1h]` option on morning notifications: an hour later the bot re-sends today's workout (skipped if you already finished it).
-* Rest timers and snoozes are stored in the database, so they still fire after a bot restart.
-
-### 6. 🚀 Optional Auto-Progression
-* When enabled, successfully completing an exercise across consecutive workouts (e.g., 3 workouts in a row) automatically increases its target by a configurable percentage (e.g., +5%).
-
-### 7. 📤 Data Export & Backups
-* **`/export` Command:** Export your complete workout history into an Excel/Google Sheets-ready `.csv` file.
-* **Weekly Automated Backups:** APScheduler sends a backup of `workout.db` to your Telegram chat every Sunday night.
-* **On-Demand Backup:** Download your database anytime via `/backup` or the Settings menu.
-* **Automatic Cleanup:** Only the 10 most recent backup files are kept in `backups/` on the server.
-* **Verified Backups:** Every backup is restore-tested: the copy is opened as a database, integrity-checked, and compared with the live data. The result is shown on the backup message.
-
-### 7a. 🎯 Targets That Adapt To You
-* **"How did it feel?"** After a full workout, tap 😴 *Too easy*, 👌 *Just right* or 🥵 *Too hard*.
-  * *Too easy* twice in a row raises every exercise's target by 10%.
-  * *Too hard* lowers them by 10% right away (never below 1).
-* **Comeback ramp:** after missing 4+ planned workout days (vacation pauses included), workouts ease back in at **70% → 85% → 100%** of your targets.
-* **⏱ Short on Time:** one tap halves today's remaining targets. It still counts for your streak, doesn't trigger progression, and can be undone (↩️ *Back to Full Workout*). The button is also on the morning reminder and evening nudge.
-
-### 7e. 🧪 Monthly Fitness Test (`/test`)
-* On the 1st of every month (reminder repeated on the 4th if not done), about 10 minutes of max-effort tests:
-  **max push-ups** (one set), **squats in 2 minutes** (built-in timer), **longest plank**, and optionally **max pull-ups** (turn on if you have a bar).
-* Guided one test at a time: reply with a number (plank also accepts `1:35`), or Skip / Stop and continue later.
-* Results are compared with your last test, with 🏅 for new personal bests. **📈 My Progress** shows a month-by-month trend, e.g. `▁▄█ 18 → 24 → 31`, *since Aug: +13 (+72%)*.
-
-### 7f. 🤝 Accountability Partner (`/partner`)
-* Invite one friend with a single-use link (valid 48 h). When they tap Start, they become your partner.
-* They receive only what you tick: ✅ weekly summary, ✅ monthly fitness test results, ⬜ an alert if you miss 3 planned workouts in a row (you get a warning the morning before it would be sent).
-* They can send you 👏 high-fives (one per day). They can't see or change anything else; every other message from them only gets a short explanation.
-* Either side can end it: you via `/partner` → Remove, they via `/stop`.
-
-### 7b. 🏖 Vacation / Sick Pause (`/pause`)
-* Pause for 3 days, 1 week, 2 weeks, or a custom number of days / end date (max 60).
-* While paused: no reminders, the streak is **frozen** (paused days count like rest days), and the heatmap shows 🟦 instead of 🟥.
-* Reminders restart automatically after the pause, with a "Welcome back" message. **Resume Now** ends it early.
-
-### 7c. 📆 Weekly Summary (`/summary`)
-* Every Sunday at 20:00: workouts done vs scheduled, per-exercise totals compared with last week, new personal records (best single day), and a bot-health line (errors this week, backup check, outside alarm).
-
-### 7d. 🩺 Unattended Operation
-* **Error reports:** any error is sent to you in Telegram (same error at most once per hour, max 10 reports per hour), so you never need to read server logs to notice a problem.
-* **Outside alarm (optional, recommended):** the bot pings a free [healthchecks.io](https://healthchecks.io) check every 5 minutes. If the server, network or bot dies, the pings stop and healthchecks.io alerts you by email or Telegram. A dead process can't report its own death, so this is the only way to catch it. See *Setting up the outside alarm* below.
-
-### 8. 📱 Telegram Mini App (Web App Interface) — currently disabled
-> The Mini App is turned off: Telegram only opens Mini Apps from a public **HTTPS** URL. The code is kept in `webapp/`; to re-enable it, serve it over HTTPS and start `webapp.server.start_webapp_server` in `main.py`'s `on_startup`.
-
-* **Native Mobile Experience:** Clicking `📱 Open Workout App` in the main menu opens a dark-mode mobile interface directly inside Telegram.
-* **Animated Circular Progress Dial:** Real-time SVG circular meter displaying overall daily completion and streak flame.
-* **Interactive Exercise Cards:** Smooth cards with mini progress bars, fast `+5` / `+10` rep adjusters, and 1-tap completion.
-* **Built-in Stopwatch with Haptic Feedback:** Live countdown timer for plank/timed sets with vibrating haptic pulses (`Telegram.WebApp.HapticFeedback`).
-* **Instant Two-Way Sync:** Automatically syncs with the SQLite database via the embedded `aiohttp` REST API and `Telegram.WebApp.sendData`.
+<p align="center">
+  <img src="docs/assets/screens.svg" alt="Bot screens: today's workout with one-tap logging, adaptive targets with weekly summary, and fitness test progress with a partner high-five" width="100%">
+</p>
 
 ---
 
-## 🏗 System Architecture
+## 📅 A week with the bot
 
-```mermaid
-flowchart TD
-    User([Telegram User]) <-->|Authorized Message / Callback| Bot[python-telegram-bot App]
-    User <-->|Opens in Telegram| MiniApp[📱 Telegram Mini App UI]
-    MiniApp <-->|REST API / Static| WebServer[aiohttp Web Server]
-    WebServer <--> Services
-
-    Bot --> Security{Is TELEGRAM_USER_ID?}
-    Security -->|No| Drop[Ignore / Log]
-    Security -->|Yes| Router[Message / Command Router]
-    
-    Router --> Handlers
-    subgraph Handlers
-        H1[start.py: /start & /help]
-        H2[workout.py: /today & logging]
-        H3[stats.py: /stats, /history, /badges, /export]
-        H4[settings.py: /settings & /backup]
-    end
-
-    Handlers --> Services
-    subgraph Services
-        S1[workout_service.py: streaks, heatmap, progression]
-        S2[stats_service.py: periods & progress bars]
-    end
-
-    Services --> DB[(SQLite: workout.db)]
-    
-    subgraph Background Scheduler
-        SCH[APScheduler Async Engine]
-        SCH -->|07:00 Daily| N1[Morning Workout Push]
-        SCH -->|19:00 Daily| N2[Evening Streak-Saver Nudge]
-        SCH -->|Sun 23:55| N3[Automated .db Backup]
-    end
-    SCH --> Bot
-```
+| When | What happens |
+| :--- | :--- |
+| **07:00** every day | Today's workout arrives with progress bars. Log it in one tap, or tap **⏱ Short on Time** for a 50% version that still counts for your streak. |
+| **After a workout** | *How did it feel?* 😴 / 👌 / 🥵. The bot tunes your next targets. |
+| **19:00** if not done | A gentle streak-saver nudge listing only what's left. |
+| **Sunday 20:00** | Weekly summary: workouts vs last week, per-exercise totals, new personal records, bot health. Also sent to your partner if you want. |
+| **1st of the month** | 🧪 Fitness test day. Results are compared with last month and your progress chart grows. |
+| **Going on vacation?** | `/pause` freezes your streak and stops reminders. They restart automatically, with a *Welcome back*. |
 
 ---
 
-## 🕹 Command Reference
+## ✨ What it does
 
-| Command | Button | Description |
-| :--- | :--- | :--- |
-| `/start` | — | Initializes the bot, checks authorization, displays welcome card and main menu |
-| `/today` | 🏋️ Today's Workout | Shows today's workout card, progress bars, and logging actions |
-| `/progress` or `/stats` | 📊 Progress | Period summary (Today, This Week, This Month, All Time) |
-| `/history` | 📅 History | 4-week visual heatmap calendar + recent workout activity |
-| `/badges` | 🏆 Milestones | Displays unlocked and in-progress milestone badges |
-| `/export` | 📤 Export CSV | Sends your complete workout log as a `.csv` spreadsheet file |
-| `/settings` | ⚙️ Settings | Configure time, timezone, auto-progression, exercises, and notifications |
-| `/backup` | 💾 Backup Data | Generates a timestamped `.db` SQLite backup sent to chat |
-| `/status` | — | Health check: uptime, running version, button clicks received, next reminders, last backup |
-| `/pause` | ⚙️ Settings → 🏖 | Vacation / sick pause: no reminders, streak frozen |
-| `/test` | ⚙️ Settings → 🧪 | Monthly fitness test and progress history |
-| `/partner` | ⚙️ Settings → 🤝 | Accountability partner: invite, choose what they get, remove |
-| `/summary` | — | This week's summary on demand (also sent Sundays 20:00) |
-| `/cancel` | — | Leave any "type a value" prompt |
-| `/help` | — | Quick user guide and command breakdown |
+### 🏋️ Train
+- **One-tap logging:** *Complete All*, `+1 / +5 / +10 / +25` buttons, exact amounts, skip.
+- **Built-in timers:** 60 s / 90 s rest and plank timers that ping you when time is up (they survive restarts).
+- **⏱ Short on Time:** halves today's remaining targets. It still counts, and can be undone.
+- **Snooze 1h:** re-sends today's workout an hour later (skipped if you already finished).
+
+### 🎯 Adapt
+- **Difficulty feedback:** *Too easy* twice in a row → targets +10%. *Too hard* → −10% right away.
+- **Comeback ramp:** after 4+ missed planned days (vacations included), workouts ease back in at 70% → 85% → 100%.
+- **Optional auto-progression:** +X% after N full-target workouts in a row. Reduced days never count.
+
+### 📈 See progress
+- **🧪 Monthly fitness test:** max push-ups, squats in 2 minutes (with timer), longest plank, optional pull-ups. Guided one test at a time; 🏅 marks personal bests; `▁▄█ 18 → 24 → 31` trend charts.
+- **📆 Weekly summary:** this week vs last week, totals per exercise, new records.
+- **📅 4-week heatmap:**
+  ```text
+   M   T   W   T   F   S   S
+  🟩  🟩  🟩  🟩  🟩  ⬜  🟩
+  🟩  🟩  🟨  🟩  🟦  🟦  🟦
+  🟩  🟩  ⏳  ▫️  ▫️  ▫️  ▫️
+  🟩 Done  🟨 Partial  ⬜ Rest  🟦 Paused  🟥 Missed
+  ```
+- **🔥 Streaks** that rest and paused days never break, **🏆 badges**, period stats, and **📤 CSV export**.
+
+### 🤝 Stay accountable
+- **Accountability partner:** a single-use invite link (48 h). Your friend gets only what you tick: weekly summary ✅, fitness test results ✅, and optionally an alert after 3 missed workouts in a row (you're warned the morning before).
+- They can send one 👏 high-five per day, and they can't see or change anything else. Either of you can end it anytime.
+- **🏖 Vacation / sick pause:** 3 days, 1–2 weeks or custom (up to 60 days).
+
+### 🛡 Run itself
+- **Verified backups:** weekly to your Telegram chat, each one restore-tested against the live data; the last 10 are kept on disk.
+- **Error reports in Telegram:** rate limited, so you never need to read server logs.
+- **📡 Outside alarm:** pings a free [healthchecks.io](https://healthchecks.io) check, which emails you if the server goes silent.
+- **`/status` health check:** uptime, running version, button clicks received, next reminders, last backup.
+- **"Bot started" message** on every restart, so a crash loop is obvious.
 
 ---
 
-## 🚀 Quick Start Guide
+## 🚀 Quick start
 
-### Prerequisites
-- Python 3.11+ (Python 3.11, 3.12, 3.13, 3.14 supported)
-- A Telegram account and a Bot Token from [@BotFather](https://t.me/botfather)
+**You need:** Python 3.11+, a bot token from [@BotFather](https://t.me/botfather), and your numeric Telegram ID from [@userinfobot](https://t.me/userinfobot).
 
-### 1. Clone the Repository
 ```bash
 git clone https://github.com/vicuvi1/Sport-Bot-Telegram-.git
 cd Sport-Bot-Telegram-
-```
-
-### 2. Create Virtual Environment
-#### Linux / macOS:
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-```
-#### Windows (PowerShell):
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-```
-
-### 3. Install Dependencies
-```bash
+python3 -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-```
-
-### 4. Configure Environment Variables
-Copy `.env.example` to `.env`:
-```bash
-cp .env.example .env
-```
-Edit `.env` with your preferred editor:
-```env
-TELEGRAM_BOT_TOKEN=1234567890:ABCdefGHIjklMNOpqrsTUVwxyz
-TELEGRAM_USER_ID=1900611848
-TIMEZONE=Europe/Chisinau
-WORKOUT_TIME=07:00
-# Optional outside alarm, see below
-HEALTHCHECK_URL=https://hc-ping.com/your-check-uuid
-```
-> **Tip:** You can obtain your numeric `TELEGRAM_USER_ID` by messaging [@userinfobot](https://t.me/userinfobot) on Telegram.
-
-### 5. Run the Bot
-```bash
+cp .env.example .env                                  # then fill it in (below)
 python main.py
 ```
-Open Telegram, search for your bot username, and send `/start`!
 
----
-
-## 🧪 Running Automated Tests
-
-Run the complete test suite with `pytest`:
-```bash
-pytest -v
+```env
+TELEGRAM_BOT_TOKEN=1234567890:ABCdefGHIjklMNOpqrsTUVwxyz
+TELEGRAM_USER_ID=123456789
+TIMEZONE=Europe/Chisinau
+WORKOUT_TIME=07:00
+HEALTHCHECK_URL=            # optional, see "Outside alarm" below
 ```
 
-All core domain logic is verified:
-- ✅ Streak calculations across consecutive days, rest days, and missed days
-- ✅ Automatic progression (+5% target scaling after consecutive completions)
-- ✅ Period statistics aggregation and Unicode progress bar formatting
-- ✅ 4-week GitHub-style heatmap rendering
-- ✅ Badge and milestone evaluations
-- ✅ SQLite backup integrity and CSV export generation
+Open your bot in Telegram and send **`/start`**. That's it. 🎉
 
 ---
 
-## 🐧 Production Ubuntu Deployment (systemd)
+## 🕹 Commands
 
-To run the bot 24/7 on an Ubuntu VPS with automatic startup on boot and auto-restart on crashes:
+| Command | What it does |
+| :--- | :--- |
+| `/today` | Today's workout with progress bars and logging buttons |
+| `/progress` · `/stats` | Stats for today, this week, this month, all time |
+| `/history` | 4-week heatmap and recent workouts |
+| `/summary` | This week's summary on demand |
+| `/test` | Monthly fitness test and your progress history |
+| `/partner` | Invite or manage your accountability partner |
+| `/pause` | Vacation / sick pause |
+| `/badges` | Milestones and badges |
+| `/settings` | Reminder time, timezone, exercises, targets, progression |
+| `/export` · `/backup` | CSV export · database backup sent to the chat |
+| `/status` | Health check |
+| `/cancel` · `/help` | Leave a prompt · help |
 
-1. Copy the project to `/opt/workout-bot`:
-   ```bash
-   sudo mkdir -p /opt/workout-bot
-   sudo chown -R $USER:$USER /opt/workout-bot
-   cp -r . /opt/workout-bot/
-   cd /opt/workout-bot
-   ```
+---
 
-2. Set up virtualenv and install dependencies:
-   ```bash
-   python3 -m venv .venv
-   ./.venv/bin/pip install -r requirements.txt
-   ```
+## 🐧 Run it 24/7 on a server
 
-3. Ensure `/opt/workout-bot/.env` is configured.
+<details>
+<summary><b>Ubuntu + systemd setup</b> (auto-start on boot, auto-restart on crash)</summary>
 
-4. Install the provided systemd service:
-   ```bash
-   sudo cp workout-bot.service /etc/systemd/system/
-   sudo systemctl daemon-reload
-   sudo systemctl enable workout-bot
-   sudo systemctl start workout-bot
-   ```
+```bash
+sudo mkdir -p /opt/workout-bot && sudo chown -R $USER:$USER /opt/workout-bot
+git clone https://github.com/vicuvi1/Sport-Bot-Telegram-.git /opt/workout-bot
+cd /opt/workout-bot
+python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
+cp .env.example .env && nano .env
 
-5. Monitor status and logs:
-   ```bash
-   # Check service status
-   sudo systemctl status workout-bot
+sudo cp workout-bot.service /etc/systemd/system/   # edit User=/Group= if not "ubuntu"
+sudo systemctl daemon-reload
+sudo systemctl enable --now workout-bot
+journalctl -u workout-bot -f                        # live logs
+```
 
-   # Tail live logs
-   journalctl -u workout-bot -f
-   ```
+**Updating:** `git pull && sudo systemctl restart workout-bot`. The database upgrades itself on startup and keeps your history.
+</details>
 
-### After an Ubuntu release upgrade
+<details>
+<summary><b>📡 Outside alarm</b> (get an email if the server dies)</summary>
 
-A major upgrade replaces the system Python, which breaks the bot's `.venv`. Rebuild it with one command (data is untouched):
+1. Create a free check at [healthchecks.io](https://healthchecks.io): **period 5 minutes**, **grace 15 minutes**, email notifications on.
+2. Put its ping URL (`https://hc-ping.com/…`) in `HEALTHCHECK_URL` in `.env` and restart the bot.
+3. `/status` shows **📡 Outside alarm: ✅ OK** within a minute. If the bot can't reach Telegram it pings `/fail`, so you're alerted even while the server is up.
+</details>
+
+<details>
+<summary><b>After an Ubuntu release upgrade</b></summary>
+
+A major upgrade replaces the system Python, which breaks the bot's virtualenv. Rebuild it with one command (your data is untouched):
+
 ```bash
 cd /opt/workout-bot && ./scripts/rebuild_venv.sh
 ```
+</details>
 
-### Setting up the outside alarm
-
-1. Create a free account at [healthchecks.io](https://healthchecks.io) and add a check with **period 5 minutes** and **grace time 15 minutes**.
-2. Under the check's *Integrations*, enable email and/or Telegram notifications.
-3. Copy the check's ping URL (`https://hc-ping.com/...`) into `HEALTHCHECK_URL` in `.env` and restart the bot.
-4. `/status` should show **📡 Outside alarm: ✅ OK** within a minute. If the bot can't reach Telegram, it pings `/fail` so the alarm fires even though the server is up.
-
-### Verifying the live bot
-
-- Every start sends you **"✅ Bot started (version …)"** in Telegram. Several of these in a row mean the bot is crash-looping; check `journalctl`.
-- Send **`/status`**: it shows uptime, the running commit, upcoming reminders and how many button clicks the bot has received.
-- Tap any inline button, then send `/status` again: the click counter should go up. Each click is also logged as `LIVE CALLBACK RECEIVED` in `journalctl`.
-
-### Troubleshooting: inline buttons do nothing
+<details>
+<summary><b>Troubleshooting: buttons do nothing</b></summary>
 
 If typed messages work but inline buttons only spin:
 
-1. **Two copies of the bot are running** with the same token (another machine, an old terminal, a second service). Telegram splits updates between them. The bot logs `CONFLICT` and messages you a warning. Find and stop the other copy:
-   ```bash
-   ps aux | grep -i "main.py" | grep -v grep
-   ```
-2. **Old code is running.** Compare the version in `/status` with `git log -1 --oneline` on the server, then `git pull` and `sudo systemctl restart workout-bot`.
-3. **Telegram was told not to send clicks.** The bot now always requests every update type when polling (`allowed_updates`), which resets any old filter on the token as soon as the new version starts.
+1. **Two copies are running** with the same token. The bot logs `CONFLICT` and messages you a warning. Find the other copy: `ps aux | grep main.py`.
+2. **Old code is running.** Compare `/status`'s version with `git log -1 --oneline`, then pull and restart.
+3. **A stale update filter on the token.** The bot always requests every update type when it starts, which clears it.
+
+Every button click is logged as `LIVE CALLBACK RECEIVED`, and `/status` counts them.
+</details>
 
 ---
 
-## 🛡️ Security & Privacy
+## 🏗 How it's built
 
-- **Single-User Lock:** The bot compares every incoming request against `TELEGRAM_USER_ID`. Unauthorized users are discarded and cannot access or manipulate your workout data.
-- **Git Safety:** `.gitignore` excludes `.env`, `*.db`, and `.venv` so credentials and personal database records are never exposed.
+```mermaid
+flowchart LR
+    You([You]) <-->|messages & buttons| Bot[python-telegram-bot]
+    Partner([Your partner]) -.->|high-fives, /stop| Bot
+    Bot --> Handlers[handlers/<br>today · stats · settings · fitness · partner · status]
+    Handlers --> Services[services/<br>workouts · streaks · stats · summary · fitness test · partner]
+    Services --> DB[(SQLite<br>data/workout.db)]
+    Scheduler[APScheduler] -->|07:00 · 12:00 · 19:00 · Sun · 1st| Bot
+    Scheduler -->|every 5 min| HC[healthchecks.io]
+    Bot -->|errors| You
+```
+
+- **Python 3.11+**, `python-telegram-bot` 22, `APScheduler` 3, SQLite. Pinned dependencies for long-term stability.
+- **165 tests** cover streaks, pauses, the comeback ramp, feedback, the fitness test, partner invites, backup verification, button routing and startup. Run them with `pytest -q`.
 
 ---
 
-## 📄 License
+## ❓ FAQ
 
-This project is licensed under the [MIT License](LICENSE).
+<details>
+<summary><b>Can other people use my bot?</b></summary>
+
+No. Only your `TELEGRAM_USER_ID` can use it. Your accountability partner (if you invite one) can only receive what you share and send high-fives. Everyone else is ignored.
+</details>
+
+<details>
+<summary><b>Does it use AI or send my data anywhere?</b></summary>
+
+No AI, no API keys, no analytics. Your data stays in `data/workout.db` on your machine. The only outside service is the optional healthchecks.io ping, which carries no workout data.
+</details>
+
+<details>
+<summary><b>Can I change the exercises?</b></summary>
+
+Yes: `/settings` → *Manage Exercises & Targets* lets you add, remove, pause exercises and change their targets. The defaults are push-ups, squats, sit-ups and plank.
+</details>
+
+<details>
+<summary><b>What about the Telegram Mini App?</b></summary>
+
+The code is in `webapp/` but it's disabled: Telegram only opens Mini Apps from a public HTTPS URL, which is one more thing to keep running. Everything works through regular chat buttons.
+</details>
+
+---
+
+<p align="center">
+  MIT licensed · Built for people who want to get fit and stay fit, quietly, for years.<br>
+  If it helps you, ⭐ the repo!
+</p>
