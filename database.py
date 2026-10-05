@@ -67,6 +67,19 @@ def init_db(db_path: Optional[Path] = None) -> None:
             );
         """)
 
+        # 5. Scheduled one-off alerts (rest timers, snoozed reminders).
+        # Persisted so they survive a bot restart; fire_at is a UTC ISO string.
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS scheduled_alerts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                kind TEXT NOT NULL,
+                fire_at TEXT NOT NULL,
+                label TEXT NOT NULL DEFAULT '',
+                seconds INTEGER NOT NULL DEFAULT 0,
+                chat_id INTEGER NOT NULL
+            );
+        """)
+
         # Seed default settings if not present
         default_settings = {
             "workout_time": config.WORKOUT_TIME or "07:00",
@@ -142,8 +155,63 @@ def create_backup(db_path: Optional[Path] = None, backup_dir: Optional[Path] = N
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     backup_file = target_dir / f"workout_backup_{timestamp}.db"
     
-    with get_connection(source_path) as src_conn:
-        with sqlite3.connect(backup_file) as dst_conn:
-            src_conn.backup(dst_conn)
-            
+    src_conn = get_connection(source_path)
+    dst_conn = sqlite3.connect(backup_file)
+    try:
+        src_conn.backup(dst_conn)
+    finally:
+        dst_conn.close()
+        src_conn.close()
+
+    prune_backups(target_dir)
     return backup_file
+
+# Number of most recent backup files kept on disk; older ones are deleted.
+BACKUPS_TO_KEEP = 10
+
+def prune_backups(backup_dir: Optional[Path] = None, keep: int = BACKUPS_TO_KEEP) -> List[Path]:
+    """Deletes all but the newest `keep` backup files. Returns the removed paths."""
+    target_dir = backup_dir or config.BACKUP_DIR
+    # Filenames embed a sortable timestamp, so name order == age order.
+    backups = sorted(target_dir.glob("workout_backup_*.db"))
+    removed = backups[:-keep] if keep > 0 else backups
+    for path in removed:
+        path.unlink(missing_ok=True)
+    return removed
+
+def get_latest_backup(backup_dir: Optional[Path] = None) -> Optional[Path]:
+    """Returns the newest backup file, or None if there are none."""
+    target_dir = backup_dir or config.BACKUP_DIR
+    backups = sorted(target_dir.glob("workout_backup_*.db"))
+    return backups[-1] if backups else None
+
+# ---------------------------------------------------------------------------
+# Scheduled alerts (rest timers / snoozed reminders)
+# ---------------------------------------------------------------------------
+
+def add_scheduled_alert(kind: str, fire_at: str, label: str, seconds: int, chat_id: int,
+                        db_path: Optional[Path] = None) -> int:
+    """Stores a one-off alert and returns its id."""
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO scheduled_alerts (kind, fire_at, label, seconds, chat_id) VALUES (?, ?, ?, ?, ?);",
+            (kind, fire_at, label, int(seconds), int(chat_id))
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+def get_scheduled_alert(alert_id: int, db_path: Optional[Path] = None) -> Optional[Dict[str, Any]]:
+    with get_connection(db_path) as conn:
+        row = conn.execute("SELECT * FROM scheduled_alerts WHERE id = ?;", (alert_id,)).fetchone()
+        return dict(row) if row else None
+
+def get_scheduled_alerts(db_path: Optional[Path] = None) -> List[Dict[str, Any]]:
+    with get_connection(db_path) as conn:
+        rows = conn.execute("SELECT * FROM scheduled_alerts ORDER BY fire_at;").fetchall()
+        return [dict(r) for r in rows]
+
+def delete_scheduled_alert(alert_id: int, db_path: Optional[Path] = None) -> None:
+    with get_connection(db_path) as conn:
+        conn.execute("DELETE FROM scheduled_alerts WHERE id = ?;", (alert_id,))
+        conn.commit()

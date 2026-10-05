@@ -13,7 +13,8 @@ from services.workout_service import (
     add_exercise,
     update_exercise,
     delete_exercise,
-    toggle_exercise_active
+    toggle_exercise_active,
+    sanitize_label
 )
 
 logger = logging.getLogger(__name__)
@@ -418,10 +419,18 @@ async def settings_text_input_handler(update: Update, context: ContextTypes.DEFA
 
         unit = parts[2] if len(parts) > 2 else "reps"
 
+        # Strip characters that would break Markdown messages and button data.
+        name = sanitize_label(name)
+        unit = sanitize_label(unit, max_length=12) or "reps"
+        if not name:
+            await update.message.reply_text("⚠️ Exercise name can't be empty. Try again or type /cancel.")
+            return True
+
         try:
             add_exercise(name, target, unit)
         except Exception as e:
-            await update.message.reply_text(f"⚠️ Could not add exercise: {e}. An exercise with this name may already exist.")
+            logger.warning("Could not add exercise %r: %s", name, e)
+            await update.message.reply_text("⚠️ Could not add exercise. An exercise with this name may already exist.")
             return True
 
         context.user_data.pop("awaiting_setting", None)

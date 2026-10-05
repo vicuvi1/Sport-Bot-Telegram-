@@ -17,6 +17,37 @@ def get_current_date_str(tz_name: Optional[str] = None, db_path: Optional[Path] 
         now = datetime.now()
     return now.strftime("%Y-%m-%d")
 
+def local_now_iso(db_path: Optional[Path] = None) -> str:
+    """Returns the current wall-clock time in the user's timezone as a naive ISO string.
+
+    Timestamps are stored without an offset on purpose: SQLite's time()/date()
+    convert offset-suffixed values to UTC, which would break local-time checks
+    such as the "Early Bird" (before 09:00) badge. Using the server clock
+    (usually UTC) instead of the user's timezone had the same effect.
+    """
+    tz_str = get_setting("timezone", config.TIMEZONE, db_path=db_path)
+    try:
+        now = datetime.now(ZoneInfo(tz_str))
+    except Exception:
+        now = datetime.now()
+    return now.replace(tzinfo=None).isoformat()
+
+# Characters that break Telegram's legacy Markdown or the ":"-separated
+# callback_data format when they appear inside user-entered labels.
+_UNSAFE_LABEL_CHARS = "*_`[]:"
+MAX_EXERCISE_NAME_LENGTH = 40
+
+def sanitize_label(text: str, max_length: int = MAX_EXERCISE_NAME_LENGTH) -> str:
+    """Cleans a user-entered exercise name or unit so it can be shown safely.
+
+    An unmatched "_" or "*" in a Markdown message makes Telegram reject the
+    whole message, which would break /today for every exercise.
+    """
+    for ch in _UNSAFE_LABEL_CHARS:
+        text = text.replace(ch, " ")
+    text = " ".join(text.split())
+    return text[:max_length].strip()
+
 # ============================================================================
 # EXERCISE MANAGEMENT
 # ============================================================================
@@ -46,8 +77,12 @@ def add_exercise(
     days_of_week: str = "0,1,2,3,4,5,6",
     db_path: Optional[Path] = None
 ) -> int:
-    """Adds a new exercise."""
-    now_iso = datetime.now().isoformat()
+    """Adds a new exercise. Name and unit are sanitized for safe display."""
+    name = sanitize_label(name)
+    unit = sanitize_label(unit, max_length=12) or "reps"
+    if not name:
+        raise ValueError("exercise name is empty")
+    now_iso = local_now_iso(db_path)
     with get_connection(db_path) as conn:
         cursor = conn.cursor()
         cursor.execute(
@@ -55,7 +90,7 @@ def add_exercise(
             INSERT INTO exercises (name, target_reps, unit, is_active, days_of_week, created_at)
             VALUES (?, ?, ?, 1, ?, ?);
             """,
-            (name.strip(), int(target_reps), unit.strip(), days_of_week.strip(), now_iso)
+            (name, int(target_reps), unit, days_of_week.strip(), now_iso)
         )
         conn.commit()
         return cursor.lastrowid
@@ -141,7 +176,7 @@ def get_or_create_daily_workout(
     if not date_str:
         date_str = get_current_date_str(db_path=db_path)
 
-    now_iso = datetime.now().isoformat()
+    now_iso = local_now_iso(db_path)
     workout_date = datetime.strptime(date_str, "%Y-%m-%d").date()
     weekday = workout_date.weekday()  # 0 = Monday, 6 = Sunday
 
@@ -218,7 +253,7 @@ def update_workout_item(
     Also re-checks if the daily workout is completed, and tests progression.
     Returns: (updated_item_dict, progression_result_dict_or_None)
     """
-    now_iso = datetime.now().isoformat()
+    now_iso = local_now_iso(db_path)
     progression_info = None
 
     with get_connection(db_path) as conn:
@@ -475,7 +510,7 @@ def complete_all_exercises_for_workout(
     Marks all pending exercises in the workout completed to their target values.
     Returns (updated_workout, list_of_progression_alerts).
     """
-    now_iso = datetime.now().isoformat()
+    now_iso = local_now_iso(db_path)
     progressions = []
 
     with get_connection(db_path) as conn:

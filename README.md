@@ -6,7 +6,7 @@
   <img src="https://img.shields.io/badge/Database-SQLite3-003B57?style=for-the-badge&logo=sqlite&logoColor=white" alt="SQLite" />
   <img src="https://img.shields.io/badge/Scheduling-APScheduler-orange?style=for-the-badge" alt="APScheduler" />
   <img src="https://img.shields.io/badge/AI%20Dependencies-None%20(Pure%20Python)-success?style=for-the-badge" alt="Zero AI" />
-  <img src="https://img.shields.io/badge/Tests-24%20Passing-brightgreen?style=for-the-badge" alt="Tests" />
+  <img src="https://img.shields.io/badge/Tests-61%20Passing-brightgreen?style=for-the-badge" alt="Tests" />
 </p>
 
 <p align="center">
@@ -68,7 +68,8 @@ Track lifetime fitness milestones with built-in badges:
 
 ### 5. ⏰ Evening Streak-Saver Nudges & Habit Reminders
 * At **19:00 (7 PM)**, if today's workout is still pending, the bot sends a gentle nudge with only the unfinished exercises so you never drop a streak.
-* Includes a `[💤 Snooze 1h]` option on morning notifications.
+* Includes a `[💤 Snooze 1h]` option on morning notifications: an hour later the bot re-sends today's workout (skipped if you already finished it).
+* Rest timers and snoozes are stored in the database, so they still fire after a bot restart.
 
 ### 6. 🚀 Optional Auto-Progression
 * When enabled, successfully completing an exercise across consecutive workouts (e.g., 3 workouts in a row) automatically increases its target by a configurable percentage (e.g., +5%).
@@ -77,8 +78,11 @@ Track lifetime fitness milestones with built-in badges:
 * **`/export` Command:** Export your complete workout history into an Excel/Google Sheets-ready `.csv` file.
 * **Weekly Automated Backups:** APScheduler sends a backup of `workout.db` to your Telegram chat every Sunday night.
 * **On-Demand Backup:** Download your database anytime via `/backup` or the Settings menu.
+* **Automatic Cleanup:** Only the 10 most recent backup files are kept in `backups/` on the server.
 
-### 8. 📱 Telegram Mini App (Web App Interface)
+### 8. 📱 Telegram Mini App (Web App Interface) — currently disabled
+> The Mini App is turned off: Telegram only opens Mini Apps from a public **HTTPS** URL. The code is kept in `webapp/`; to re-enable it, serve it over HTTPS and start `webapp.server.start_webapp_server` in `main.py`'s `on_startup`.
+
 * **Native Mobile Experience:** Clicking `📱 Open Workout App` in the main menu opens a dark-mode mobile interface directly inside Telegram.
 * **Animated Circular Progress Dial:** Real-time SVG circular meter displaying overall daily completion and streak flame.
 * **Interactive Exercise Cards:** Smooth cards with mini progress bars, fast `+5` / `+10` rep adjusters, and 1-tap completion.
@@ -139,6 +143,7 @@ flowchart TD
 | `/export` | 📤 Export CSV | Sends your complete workout log as a `.csv` spreadsheet file |
 | `/settings` | ⚙️ Settings | Configure time, timezone, auto-progression, exercises, and notifications |
 | `/backup` | 💾 Backup Data | Generates a timestamped `.db` SQLite backup sent to chat |
+| `/status` | — | Health check: uptime, running version, button clicks received, next reminders, last backup |
 | `/help` | — | Quick user guide and command breakdown |
 
 ---
@@ -196,7 +201,7 @@ Open Telegram, search for your bot username, and send `/start`!
 
 ## 🧪 Running Automated Tests
 
-Run the complete 24-test suite with `pytest`:
+Run the complete test suite with `pytest`:
 ```bash
 pytest -v
 ```
@@ -247,6 +252,23 @@ To run the bot 24/7 on an Ubuntu VPS with automatic startup on boot and auto-res
    # Tail live logs
    journalctl -u workout-bot -f
    ```
+
+### Verifying the live bot
+
+- Every start sends you **"✅ Bot started (version …)"** in Telegram. Several of these in a row mean the bot is crash-looping; check `journalctl`.
+- Send **`/status`**: it shows uptime, the running commit, upcoming reminders and how many button clicks the bot has received.
+- Tap any inline button, then send `/status` again: the click counter should go up. Each click is also logged as `LIVE CALLBACK RECEIVED` in `journalctl`.
+
+### Troubleshooting: inline buttons do nothing
+
+If typed messages work but inline buttons only spin:
+
+1. **Two copies of the bot are running** with the same token (another machine, an old terminal, a second service). Telegram splits updates between them. The bot logs `CONFLICT` and messages you a warning. Find and stop the other copy:
+   ```bash
+   ps aux | grep -i "main.py" | grep -v grep
+   ```
+2. **Old code is running.** Compare the version in `/status` with `git log -1 --oneline` on the server, then `git pull` and `sudo systemctl restart workout-bot`.
+3. **Telegram was told not to send clicks.** The bot now always requests every update type when polling (`allowed_updates`), which resets any old filter on the token as soon as the new version starts.
 
 ---
 

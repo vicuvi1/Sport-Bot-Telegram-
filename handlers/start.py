@@ -75,6 +75,8 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "  Customize notification time, timezone, active exercises, targets, and automatic progression.\n\n"
         "• *💾 Database Backup* (`/backup`)\n"
         "  Generate an instant SQLite database backup and receive it right here in Telegram.\n\n"
+        "• *🩺 Status* (`/status`)\n"
+        "  Check the bot is healthy: uptime, version, button clicks received, and upcoming reminders.\n\n"
         "Rest days never break your streak! Keep going strong. 💪"
     )
 

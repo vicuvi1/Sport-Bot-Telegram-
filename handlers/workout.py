@@ -1,4 +1,3 @@
-import asyncio
 import logging
 from typing import Dict, Any, Optional
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -6,6 +5,7 @@ from telegram.ext import ContextTypes
 
 import config
 from handlers.start import is_authorized
+from scheduler import schedule_alert, ALERT_TIMER, ALERT_SNOOZE
 from services.workout_service import (
     get_or_create_daily_workout,
     update_workout_item,
@@ -17,17 +17,19 @@ from services.workout_service import (
 
 logger = logging.getLogger(__name__)
 
-async def run_timer_alert(bot, chat_id: int, seconds: int, label: str) -> None:
-    """Waits for specified duration and alerts the user."""
-    await asyncio.sleep(seconds)
-    try:
-        await bot.send_message(
-            chat_id=chat_id,
-            text=f"🔔 *Time's Up!* ({label})\n\nYour *{seconds}s* interval is complete. Ready for the next set! 💪",
-            parse_mode="Markdown"
-        )
-    except Exception as e:
-        logger.error(f"Timer alert failed: {e}")
+SNOOZE_SECONDS = 3600
+
+# Telegram rejects the WHOLE message if any button's callback_data exceeds 64 bytes.
+MAX_CALLBACK_DATA_BYTES = 64
+
+def timer_callback_data(seconds: int, label: str) -> str:
+    """Builds `start_timer:<secs>:<label>`, trimming the label to fit 64 bytes."""
+    prefix = f"start_timer:{seconds}:"
+    budget = MAX_CALLBACK_DATA_BYTES - len(prefix.encode("utf-8"))
+    label = label.replace(":", " ")
+    while len(label.encode("utf-8")) > budget:
+        label = label[:-1]
+    return prefix + (label.strip() or "Timer")
 
 def build_today_workout_view(workout: Dict[str, Any], date_str: str) -> tuple[str, InlineKeyboardMarkup]:
     """Generates the text and inline keyboard for the daily workout overview with visual progress bars."""
@@ -107,7 +109,8 @@ def build_exercise_detail_view(item: Dict[str, Any]) -> tuple[str, InlineKeyboar
     # Add quick timer if unit is seconds or plank
     if item["unit"] == "sec" or "plank" in item["exercise_name"].lower():
         keyboard.append([
-            InlineKeyboardButton(f"⏱ Start {item['target_reps']}s Timer", callback_data=f"start_timer:{item['target_reps']}:{item['exercise_name']}"),
+            InlineKeyboardButton(f"⏱ Start {item['target_reps']}s Timer",
+                                 callback_data=timer_callback_data(item['target_reps'], item['exercise_name'])),
             InlineKeyboardButton("⏱ 30s Timer", callback_data="start_timer:30:Plank")
         ])
 
@@ -175,11 +178,13 @@ async def workout_callback_handler(update: Update, context: ContextTypes.DEFAULT
         parts = data.split(":")
         secs = int(parts[1])
         label = parts[2] if len(parts) > 2 else "Timer"
-        asyncio.create_task(run_timer_alert(context.bot, query.from_user.id, secs, label))
+        schedule_alert(context.bot_data.get("scheduler"), context.bot, ALERT_TIMER,
+                       secs, label, query.from_user.id)
         return
 
     if data == "snooze_reminder":
-        asyncio.create_task(run_timer_alert(context.bot, query.from_user.id, 3600, "Snoozed Workout Reminder"))
+        schedule_alert(context.bot_data.get("scheduler"), context.bot, ALERT_SNOOZE,
+                       SNOOZE_SECONDS, "Snoozed Workout Reminder", query.from_user.id)
         return
 
     if data == "refresh_today":

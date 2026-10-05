@@ -120,10 +120,23 @@ def fake_context():
     return SimpleNamespace(bot=AsyncMock(), user_data={}, bot_data={})
 
 
-def route(app, update):
-    """Return the list of CallbackQueryHandlers that accept this update."""
+def feature_handlers(app):
+    """The per-feature CallbackQueryHandlers (everything except the fallback)."""
     return [h for h in app.handlers[0]
-            if isinstance(h, CallbackQueryHandler) and h.check_update(update)]
+            if isinstance(h, CallbackQueryHandler) and h.pattern is not None]
+
+
+def route(app, update):
+    """Return the list of feature CallbackQueryHandlers that accept this update."""
+    return [h for h in feature_handlers(app) if h.check_update(update)]
+
+
+def first_match(app, update):
+    """The handler PTB would actually run: the first match in registration order."""
+    for h in app.handlers[0]:
+        if isinstance(h, CallbackQueryHandler) and h.check_update(update):
+            return h
+    return None
 
 
 # --------------------------------------------------------------------------
@@ -148,16 +161,58 @@ def test_workout_callbacks_no_longer_fall_through_to_settings():
         matched = route(app, real_callback_update(data))
         assert len(matched) == 1, data
         # The matched handler must be the FIRST registered callback handler (workout)
-        callback_handlers = [h for h in app.handlers[0] if isinstance(h, CallbackQueryHandler)]
-        assert matched[0] is callback_handlers[0], f"{data} did not route to workout handler"
+        assert matched[0] is feature_handlers(app)[0], f"{data} did not route to workout handler"
 
 
-def test_no_catch_all_callback_handler_exists():
-    """Every CallbackQueryHandler must have an explicit pattern."""
+def test_only_catch_all_is_the_last_callback_handler():
+    """The single pattern-less fallback must be registered after every feature
+    handler, so it can only ever receive callbacks no feature claimed."""
     app = build_app()
-    for h in app.handlers[0]:
-        if isinstance(h, CallbackQueryHandler):
-            assert h.pattern is not None, "found a catch-all CallbackQueryHandler (no pattern)"
+    callback_handlers = [h for h in app.handlers[0] if isinstance(h, CallbackQueryHandler)]
+    catch_alls = [h for h in callback_handlers if h.pattern is None]
+    assert len(catch_alls) == 1
+    assert callback_handlers[-1] is catch_alls[0]
+    assert catch_alls[0].callback is app_main.unknown_callback_handler
+
+
+def test_known_callbacks_never_reach_the_fallback():
+    app = build_app()
+    for data in [d for ds in callback_texts().values() for d in ds]:
+        handler = first_match(app, real_callback_update(data))
+        assert handler.pattern is not None, f"{data!r} fell through to the fallback"
+
+
+def test_unknown_callback_is_answered_by_fallback():
+    """A stale/unknown button must still be answered (no endless spinner)."""
+    app = build_app()
+    handler = first_match(app, real_callback_update("some_removed_feature:1"))
+    assert handler.callback is app_main.unknown_callback_handler
+
+    update = FakeUpdate("some_removed_feature:1")
+    context = fake_context()
+    asyncio.run(handler.callback(update, context))
+    assert len(update.callback_query.answer_calls) == 1
+    assert context.bot_data["callbacks_received"] == 1
+
+
+def test_unauthorized_click_is_answered_but_not_handled(monkeypatch):
+    app = build_app()
+    handler = first_match(app, real_callback_update("complete_all"))
+    update = FakeUpdate("complete_all")
+    update.effective_user = SimpleNamespace(id=config.USER_ID + 1)
+
+    inner = AsyncMock()
+    monkeypatch.setattr(workout_module, "complete_all_exercises_for_workout", inner)
+    asyncio.run(handler.callback(update, fake_context()))
+    assert len(update.callback_query.answer_calls) == 1
+    inner.assert_not_called()
+
+
+def test_polling_requests_every_update_type():
+    """Telegram reuses the previous allowed_updates if none are sent, which can
+    silently drop button clicks; main() must request callback queries explicitly."""
+    assert "callback_query" in app_main.POLLING_UPDATE_TYPES
+    assert "message" in app_main.POLLING_UPDATE_TYPES
 
 
 def test_namespaces_are_disjoint():
@@ -180,9 +235,6 @@ def test_pattern_constants_match_expected_callbacks():
 
 def test_all_callbacks_execute_and_answer_exactly_once(monkeypatch):
     """Run every callback through its real handler with a stubbed network."""
-    # run_timer_alert would sleep for real; replace with a no-op coroutine
-    monkeypatch.setattr(workout_module, "run_timer_alert", AsyncMock())
-
     app = build_app()
 
     async def run_all():
@@ -219,7 +271,6 @@ def test_all_callbacks_execute_and_answer_exactly_once(monkeypatch):
 
 def test_answer_happens_before_database_work(monkeypatch):
     """The click must be acknowledged before any DB call for complete_all."""
-    monkeypatch.setattr(workout_module, "run_timer_alert", AsyncMock())
     app = build_app()
 
     order = []

@@ -1,8 +1,10 @@
 import sys
 import logging
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from telegram import Update
+from telegram.error import Conflict
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -25,6 +27,7 @@ from handlers.stats import (
     export_command_handler
 )
 from handlers.settings import settings_handler, settings_callback_handler, settings_text_input_handler
+from handlers.status import status_handler, get_version
 from services.workout_service import (
     get_or_create_daily_workout,
     update_workout_item,
@@ -115,6 +118,14 @@ async def backup_command_handler(update: Update, context: ContextTypes.DEFAULT_T
         logger.error(f"Backup failed: {e}")
         await update.message.reply_text(f"⚠️ Backup creation failed: {e}")
 
+DUPLICATE_INSTANCE_WARNING = (
+    "⚠️ *Another copy of this bot is running* with the same token.\n\n"
+    "Telegram splits messages and button clicks between the copies, so some "
+    "clicks will seem to do nothing. Stop the other copy (check other machines, "
+    "terminals, or a second service on the server)."
+)
+
+
 async def global_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Catches unhandled errors gracefully so the bot remains resilient.
 
@@ -123,6 +134,21 @@ async def global_error_handler(update: object, context: ContextTypes.DEFAULT_TYP
     a short, friendly message that leaks no internal details.
     """
     err = context.error
+
+    # Polling errors arrive here with update=None. Conflict means a second
+    # process is calling getUpdates with this token at the same time.
+    if isinstance(err, Conflict):
+        logger.error("CONFLICT: another instance of this bot is polling with the same token. "
+                     "Updates (including button clicks) are being split between instances.")
+        if not context.bot_data.get("conflict_warned") and config.USER_ID:
+            context.bot_data["conflict_warned"] = True
+            try:
+                await context.bot.send_message(config.USER_ID, DUPLICATE_INSTANCE_WARNING,
+                                               parse_mode="Markdown")
+            except Exception as send_err:
+                logger.error("Failed to send duplicate-instance warning: %s", send_err)
+        return
+
     logger.error(
         "Exception while handling an update: %s: %s",
         type(err).__name__ if err else "UnknownError",
@@ -176,7 +202,28 @@ async def on_startup(application) -> None:
     """
     scheduler = setup_scheduler(application.bot)
     application.bot_data["scheduler"] = scheduler
+    application.bot_data["started_at"] = datetime.now(timezone.utc)
+    # Captured once at startup: after a `git pull` without a restart, git would
+    # report the new commit while the old code is still running.
+    application.bot_data["version"] = get_version()
+    application.bot_data["callbacks_received"] = 0
     _instrument_bot(application.bot)
+    await send_startup_message(application)
+
+
+async def send_startup_message(application) -> None:
+    """Tells the user the bot (re)started; repeated messages reveal a crash loop."""
+    if not config.USER_ID:
+        return
+    version = application.bot_data.get("version", "unknown")
+    try:
+        await application.bot.send_message(
+            chat_id=config.USER_ID,
+            text=f"✅ Bot started (version `{version}`). Send /status for a health check.",
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        logger.error("Could not send startup message: %s", e)
 
 async def on_shutdown(application) -> None:
     """Cleans up background web server runner upon shutdown."""
@@ -209,6 +256,13 @@ def _log_callback(namespace: str, data: str, duration: float) -> None:
         logger.info("callback=%s namespace=%s duration=%.3fs", data, namespace, duration)
 
 
+def _record_click(context) -> None:
+    """Counts received button clicks so /status can show whether clicks arrive."""
+    bot_data = context.bot_data
+    bot_data["callbacks_received"] = bot_data.get("callbacks_received", 0) + 1
+    bot_data["last_callback_at"] = datetime.now(timezone.utc)
+
+
 def _timed(namespace: str, handler):
     """Wraps a callback handler to log its callback_data and elapsed time."""
     async def wrapper(update, context):
@@ -218,11 +272,31 @@ def _timed(namespace: str, handler):
         user_id = getattr(getattr(query, "from_user", None), "id", "?")
         # Logged the instant a REAL callback arrives from Telegram.
         logger.info("LIVE CALLBACK RECEIVED data=%s user=%s namespace=%s", data, user_id, namespace)
+        _record_click(context)
         try:
+            if not is_authorized(update):
+                # Still answer, otherwise Telegram shows a spinner forever.
+                logger.warning("Ignoring callback %s from unauthorized user %s", data, user_id)
+                await query.answer()
+                return
             await handler(update, context)
         finally:
             _log_callback(namespace, data, time.perf_counter() - started)
     return wrapper
+
+
+async def unknown_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Answers callbacks no feature handler claimed (e.g. buttons on old messages).
+
+    Registered LAST: PTB stops at the first matching handler in a group, so this
+    can never take a callback away from the workout/stats/settings handlers. It
+    only guarantees that no button is ever left spinning without an answer.
+    """
+    query = update.callback_query
+    logger.warning("UNROUTED CALLBACK data=%r — no handler matched", query.data)
+    _record_click(context)
+    await query.answer("This button is no longer active. Send /today to get a fresh menu.",
+                       show_alert=True)
 
 
 def _instrument_bot(bot) -> None:
@@ -268,14 +342,18 @@ def register_handlers(app) -> None:
     app.add_handler(CommandHandler("backup", backup_command_handler))
     app.add_handler(CommandHandler("badges", badges_command_handler))
     app.add_handler(CommandHandler("export", export_command_handler))
+    app.add_handler(CommandHandler("status", status_handler))
 
-    # 2. Callback query handlers — one explicit namespace each, no catch-all.
+    # 2. Callback query handlers — one explicit namespace each, plus a final
+    #    fallback that only answers callbacks none of them claimed.
     app.add_handler(CallbackQueryHandler(_timed("workout", workout_callback_handler),
                                          pattern=WORKOUT_CALLBACK_PATTERN))
     app.add_handler(CallbackQueryHandler(_timed("stats", stats_callback_handler),
                                          pattern=STATS_CALLBACK_PATTERN))
     app.add_handler(CallbackQueryHandler(_timed("settings", settings_callback_handler),
                                          pattern=SETTINGS_CALLBACK_PATTERN))
+    # Must stay the last callback handler: answers anything unclaimed above.
+    app.add_handler(CallbackQueryHandler(unknown_callback_handler))
 
     # 3. Message handlers
     app.add_handler(MessageHandler(filters.StatusUpdate.WEB_APP_DATA, web_app_data_handler))
@@ -283,6 +361,10 @@ def register_handlers(app) -> None:
 
     # 4. Error handler
     app.add_error_handler(global_error_handler)
+
+
+# Update types requested from Telegram on every poll (see main()).
+POLLING_UPDATE_TYPES = Update.ALL_TYPES
 
 
 # Placeholder values that mean "no real token has been configured yet".
@@ -344,7 +426,11 @@ def main() -> None:
 
     # 9. Start Polling
     logger.info(f"Bot started! Authorized User ID: {config.USER_ID}")
-    app.run_polling(drop_pending_updates=True)
+    # allowed_updates MUST be explicit: when omitted, Telegram reuses whatever
+    # list was last sent with this token. If anything ever polled with e.g.
+    # ["message"], button clicks (callback_query) are silently never delivered,
+    # while typed messages keep working.
+    app.run_polling(drop_pending_updates=True, allowed_updates=POLLING_UPDATE_TYPES)
 
 if __name__ == "__main__":
     main()
