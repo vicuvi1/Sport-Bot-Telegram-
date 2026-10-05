@@ -6,7 +6,7 @@
   <img src="https://img.shields.io/badge/Database-SQLite3-003B57?style=for-the-badge&logo=sqlite&logoColor=white" alt="SQLite" />
   <img src="https://img.shields.io/badge/Scheduling-APScheduler-orange?style=for-the-badge" alt="APScheduler" />
   <img src="https://img.shields.io/badge/AI%20Dependencies-None%20(Pure%20Python)-success?style=for-the-badge" alt="Zero AI" />
-  <img src="https://img.shields.io/badge/Tests-100%20Passing-brightgreen?style=for-the-badge" alt="Tests" />
+  <img src="https://img.shields.io/badge/Tests-121%20Passing-brightgreen?style=for-the-badge" alt="Tests" />
 </p>
 
 <p align="center">
@@ -80,6 +80,13 @@ Track lifetime fitness milestones with built-in badges:
 * **On-Demand Backup:** Download your database anytime via `/backup` or the Settings menu.
 * **Automatic Cleanup:** Only the 10 most recent backup files are kept in `backups/` on the server.
 * **Verified Backups:** Every backup is restore-tested: the copy is opened as a database, integrity-checked, and compared with the live data. The result is shown on the backup message.
+
+### 7a. 🎯 Targets That Adapt To You
+* **"How did it feel?"** After a full workout, tap 😴 *Too easy*, 👌 *Just right* or 🥵 *Too hard*.
+  * *Too easy* twice in a row raises every exercise's target by 10%.
+  * *Too hard* lowers them by 10% right away (never below 1).
+* **Comeback ramp:** after missing 4+ planned workout days (vacation pauses included), workouts ease back in at **70% → 85% → 100%** of your targets.
+* **⏱ Short on Time:** one tap halves today's remaining targets. It still counts for your streak, doesn't trigger progression, and can be undone (↩️ *Back to Full Workout*). The button is also on the morning reminder and evening nudge.
 
 ### 7b. 🏖 Vacation / Sick Pause (`/pause`)
 * Pause for 3 days, 1 week, 2 weeks, or a custom number of days / end date (max 60).

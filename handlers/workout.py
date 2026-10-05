@@ -13,7 +13,12 @@ from services.workout_service import (
     calculate_streaks,
     get_current_date_str,
     get_active_pause,
-    render_progress_bar
+    render_progress_bar,
+    start_quick_workout,
+    undo_quick_workout,
+    record_feedback,
+    FEEDBACK_LABELS,
+    COMEBACK_FACTORS
 )
 
 logger = logging.getLogger(__name__)
@@ -31,6 +36,27 @@ def timer_callback_data(seconds: int, label: str) -> str:
     while len(label.encode("utf-8")) > budget:
         label = label[:-1]
     return prefix + (label.strip() or "Timer")
+
+def quick_toggle_button(is_quick: bool) -> InlineKeyboardButton:
+    """"Short on time" button, or its undo while a quick workout is active."""
+    if is_quick:
+        return InlineKeyboardButton("↩️ Back to Full Workout", callback_data="quick_undo")
+    return InlineKeyboardButton("⏱ Short on Time (50%)", callback_data="quick_workout")
+
+def feedback_notice(result: Dict[str, Any]) -> str:
+    """Explains what a feedback answer changed (Markdown)."""
+    if not result["recorded"]:
+        return "ℹ️ Feedback for today is already saved."
+    changes = ", ".join(f"{c['name']} {c['old']}→{c['new']}" for c in result["changes"])
+    if result["feedback"] == "easy":
+        if changes:
+            return f"📈 *Targets raised:* {changes}"
+        if result["easy_streak"]:
+            return "👍 Noted. If it feels too easy next time too, I'll raise your targets."
+        return "👍 Noted. Comeback days don't change your normal targets."
+    if result["feedback"] == "hard":
+        return f"📉 *Targets lowered for next time:* {changes}" if changes else "📉 Noted. Targets are already at the minimum."
+    return "👌 Great, keeping your targets as they are."
 
 def build_today_workout_view(workout: Dict[str, Any], date_str: str) -> tuple[str, InlineKeyboardMarkup]:
     """Generates the text and inline keyboard for the daily workout overview with visual progress bars."""
@@ -60,8 +86,15 @@ def build_today_workout_view(workout: Dict[str, Any], date_str: str) -> tuple[st
         return text, InlineKeyboardMarkup(keyboard)
 
     all_completed = workout["status"] == "completed"
+    is_quick = bool(workout.get("quick"))
+    comeback_stage = workout.get("comeback_stage") or 0
     header_status = "🎉 COMPLETED!" if all_completed else "IN PROGRESS"
     text = f"🏋️ *Today's Workout* ({date_str}) — *{header_status}*\n\n"
+    if is_quick:
+        text += "⏱ *Quick workout:* targets halved, still counts for your streak.\n\n"
+    elif comeback_stage in COMEBACK_FACTORS:
+        pct = int(COMEBACK_FACTORS[comeback_stage] * 100)
+        text += f"🔄 *Comeback day:* targets at {pct}% to ease back in after your break.\n\n"
 
     keyboard = []
     for item in workout["items"]:
@@ -75,9 +108,19 @@ def build_today_workout_view(workout: Dict[str, Any], date_str: str) -> tuple[st
     text += f"\n🔥 Streak: *{current_streak} days*\n"
     if all_completed:
         text += "\n🌟 *Amazing effort! All exercises for today are complete.*"
+        feedback = workout.get("feedback")
+        if feedback in FEEDBACK_LABELS:
+            text += f"\n📝 You said: {FEEDBACK_LABELS[feedback]}"
+        elif not is_quick:
+            text += "\n\n*How did it feel?* Your answer tunes future targets."
+            keyboard.insert(0, [
+                InlineKeyboardButton(label, callback_data=f"fb:{key}")
+                for key, label in FEEDBACK_LABELS.items()
+            ])
     else:
         text += "\nTap an exercise to log reps, or tap *Complete All*:"
         keyboard.insert(0, [InlineKeyboardButton("⚡ Complete All as Scheduled", callback_data="complete_all")])
+        keyboard.append([quick_toggle_button(is_quick)])
 
     # NOTE: The Mini App (web_app) button was removed. Telegram requires an
     # HTTPS web_app URL and rejects the whole message for http://localhost,
@@ -208,6 +251,24 @@ async def workout_callback_handler(update: Update, context: ContextTypes.DEFAULT
     if data == "snooze_reminder":
         schedule_alert(context.bot_data.get("scheduler"), context.bot, ALERT_SNOOZE,
                        SNOOZE_SECONDS, "Snoozed Workout Reminder", query.from_user.id)
+        return
+
+    if data in ("quick_workout", "quick_undo"):
+        workout = get_or_create_daily_workout(today_str)
+        change = start_quick_workout if data == "quick_workout" else undo_quick_workout
+        change(workout["id"])  # no-op if it doesn't apply (e.g. already done)
+        workout = get_or_create_daily_workout(today_str)
+        text, markup = build_today_workout_view(workout, today_str)
+        await query.edit_message_text(text, reply_markup=markup, parse_mode="Markdown")
+        return
+
+    if data.startswith("fb:"):
+        workout = get_or_create_daily_workout(today_str)
+        result = record_feedback(workout["id"], data.split(":", 1)[1])
+        workout = get_or_create_daily_workout(today_str)
+        text, markup = build_today_workout_view(workout, today_str)
+        await query.edit_message_text(f"{feedback_notice(result)}\n\n{text}",
+                                      reply_markup=markup, parse_mode="Markdown")
         return
 
     if data == "refresh_today":

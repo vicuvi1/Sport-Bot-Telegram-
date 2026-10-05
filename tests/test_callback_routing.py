@@ -55,6 +55,7 @@ def callback_texts() -> dict:
             "ex_view:1", "ex_done:1", "ex_skip:1", "ex_enter:1",
             "ex_delta:1:1", "ex_delta:1:5", "ex_delta:1:10", "ex_delta:1:25",
             "ex_delta:1:-1", "ex_delta:1:-5",
+            "quick_workout", "quick_undo", "fb:easy", "fb:ok", "fb:hard",
         ],
         "stats": [
             "stats_period:today", "stats_period:week",

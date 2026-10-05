@@ -13,6 +13,12 @@ def get_connection(db_path: Optional[Path] = None) -> sqlite3.Connection:
     conn.execute("PRAGMA foreign_keys = ON;")
     return conn
 
+def _ensure_column(cursor: sqlite3.Cursor, table: str, column: str, ddl: str) -> None:
+    """Adds `column` to `table` if it doesn't exist yet."""
+    existing = {row[1] for row in cursor.execute(f"PRAGMA table_info({table});").fetchall()}
+    if column not in existing:
+        cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl};")
+
 def init_db(db_path: Optional[Path] = None) -> None:
     """Initializes tables, default settings, and default exercises."""
     with get_connection(db_path) as conn:
@@ -91,6 +97,13 @@ def init_db(db_path: Optional[Path] = None) -> None:
             );
         """)
 
+        # Columns added after the first release. ALTER TABLE keeps existing
+        # databases (and their history) working without a manual migration.
+        _ensure_column(cursor, "daily_workouts", "feedback", "TEXT")           # easy / ok / hard
+        _ensure_column(cursor, "daily_workouts", "quick", "INTEGER NOT NULL DEFAULT 0")
+        _ensure_column(cursor, "daily_workouts", "comeback_stage", "INTEGER NOT NULL DEFAULT 0")
+        _ensure_column(cursor, "workout_items", "full_target_reps", "INTEGER")  # set during a quick workout
+
         # Seed default settings if not present
         default_settings = {
             "workout_time": config.WORKOUT_TIME or "07:00",
@@ -99,7 +112,8 @@ def init_db(db_path: Optional[Path] = None) -> None:
             "auto_progression_enabled": "0",
             "progression_percentage": "5",
             "progression_consecutive_workouts": "3",
-            "workout_days": "0,1,2,3,4,5,6"  # Mon-Sun active by default
+            "workout_days": "0,1,2,3,4,5,6",  # Mon-Sun active by default
+            "easy_feedback_streak": "0"       # consecutive "too easy" answers
         }
         for key, val in default_settings.items():
             cursor.execute(

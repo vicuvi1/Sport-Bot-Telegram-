@@ -264,6 +264,43 @@ def is_day_active(weekday: int, active_days_str: str) -> bool:
     except Exception:
         return True
 
+# ============================================================================
+# COMEBACK RAMP
+# ============================================================================
+# After missing several planned workout days (vacation pauses included: you
+# still lose fitness), the next workouts ease back in: 70% → 85% → 100%.
+
+COMEBACK_AFTER_MISSED_DAYS = 4
+COMEBACK_FACTORS = {1: 0.70, 2: 0.85}
+
+def scale_target(target: int, factor: float) -> int:
+    """Scales a target, rounding up, never below 1."""
+    if factor >= 1.0:
+        return target
+    return max(1, math.ceil(target * factor))
+
+def comeback_stage_for(cursor, workout_date: date, workout_days_setting: str) -> int:
+    """Returns 1 or 2 if the workout on `workout_date` should be eased in, else 0."""
+    row = cursor.execute(
+        "SELECT date, comeback_stage FROM daily_workouts "
+        "WHERE status = 'completed' AND date < ? ORDER BY date DESC LIMIT 1;",
+        (workout_date.isoformat(),)
+    ).fetchone()
+    if not row:
+        return 0  # brand-new user: nothing to come back from
+
+    last = _to_date(row["date"])
+    gap = (workout_date - last).days - 1
+    missed = sum(
+        1 for i in range(1, min(gap, 30) + 1)
+        if is_day_active((last + timedelta(days=i)).weekday(), workout_days_setting)
+    )
+    if missed >= COMEBACK_AFTER_MISSED_DAYS:
+        return 1
+    if row["comeback_stage"] == 1:
+        return 2
+    return 0
+
 def get_or_create_daily_workout(
     date_str: Optional[str] = None,
     db_path: Optional[Path] = None
@@ -316,10 +353,12 @@ def get_or_create_daily_workout(
                 conn.commit()
                 workout_id = cursor.lastrowid
             else:
-                # Active workout day
+                # Active workout day (eased in after a break, see comeback_stage_for)
+                stage = comeback_stage_for(cursor, workout_date, workout_days_setting)
+                factor = COMEBACK_FACTORS.get(stage, 1.0)
                 cursor.execute(
-                    "INSERT INTO daily_workouts (date, status, created_at) VALUES (?, 'pending', ?);",
-                    (date_str, now_iso)
+                    "INSERT INTO daily_workouts (date, status, created_at, comeback_stage) VALUES (?, 'pending', ?, ?);",
+                    (date_str, now_iso, stage)
                 )
                 workout_id = cursor.lastrowid
 
@@ -330,7 +369,7 @@ def get_or_create_daily_workout(
                             daily_workout_id, exercise_id, exercise_name, target_reps, completed_reps, unit, status, updated_at
                         ) VALUES (?, ?, ?, ?, 0, ?, 'pending', ?);
                         """,
-                        (workout_id, ex["id"], ex["name"], ex["target_reps"], ex["unit"], now_iso)
+                        (workout_id, ex["id"], ex["name"], scale_target(ex["target_reps"], factor), ex["unit"], now_iso)
                     )
                 conn.commit()
 
@@ -346,6 +385,31 @@ def get_or_create_daily_workout(
 # ============================================================================
 # EXERCISE COMPLETION & UPDATES
 # ============================================================================
+
+def _refresh_workout_status(cursor, workout_id: int, now_iso: str) -> None:
+    """Sets the day's status from its items: completed, skipped or pending."""
+    cursor.execute("SELECT status FROM workout_items WHERE daily_workout_id = ?;", (workout_id,))
+    statuses = [r["status"] for r in cursor.fetchall()]
+
+    all_done = all(s in ("completed", "skipped") for s in statuses)
+    has_completed = any(s == "completed" for s in statuses)
+
+    if all_done and has_completed:
+        cursor.execute(
+            "UPDATE daily_workouts SET status = 'completed', completed_at = COALESCE(completed_at, ?) "
+            "WHERE id = ? AND status != 'completed';",
+            (now_iso, workout_id)
+        )
+    elif all_done and not has_completed:
+        cursor.execute(
+            "UPDATE daily_workouts SET status = 'skipped', completed_at = ? WHERE id = ?;",
+            (now_iso, workout_id)
+        )
+    else:
+        cursor.execute(
+            "UPDATE daily_workouts SET status = 'pending', completed_at = NULL WHERE id = ?;",
+            (workout_id,)
+        )
 
 def update_workout_item(
     item_id: int,
@@ -395,30 +459,7 @@ def update_workout_item(
         )
 
         workout_id = current_item["daily_workout_id"]
-
-        # Check if entire workout is complete
-        cursor.execute("SELECT status, completed_reps, target_reps FROM workout_items WHERE daily_workout_id = ?;", (workout_id,))
-        all_items = [dict(r) for r in cursor.fetchall()]
-        
-        all_done = all(it["status"] in ("completed", "skipped") for it in all_items)
-        has_completed = any(it["status"] == "completed" for it in all_items)
-
-        if all_done and has_completed:
-            cursor.execute(
-                "UPDATE daily_workouts SET status = 'completed', completed_at = ? WHERE id = ?;",
-                (now_iso, workout_id)
-            )
-        elif all_done and not has_completed:
-            cursor.execute(
-                "UPDATE daily_workouts SET status = 'skipped', completed_at = ? WHERE id = ?;",
-                (now_iso, workout_id)
-            )
-        else:
-            cursor.execute(
-                "UPDATE daily_workouts SET status = 'pending', completed_at = NULL WHERE id = ?;",
-                (workout_id,)
-            )
-
+        _refresh_workout_status(cursor, workout_id, now_iso)
         conn.commit()
 
         # Check progression for this exercise if completed
@@ -477,9 +518,12 @@ def check_and_apply_progression(exercise_id: int, db_path: Optional[Path] = None
         if len(recent_items) < consecutive_req:
             return None
 
-        # Check if all recent N items were successfully completed
+        # Check if all recent N items were successfully completed at the full
+        # target (quick / comeback days have reduced targets and don't count).
         for item in recent_items:
             if item["status"] != "completed" or item["completed_reps"] < item["target_reps"]:
+                return None
+            if item["target_reps"] < current_target:
                 return None
 
         # Calculate new target
@@ -658,6 +702,143 @@ def complete_all_exercises_for_workout(
         workout["items"] = [dict(r) for r in cursor.fetchall()]
 
         return workout, progressions
+
+# ============================================================================
+# QUICK WORKOUT ("short on time")
+# ============================================================================
+
+QUICK_FACTOR = 0.5
+
+def _load_workout(cursor, workout_id: int) -> Optional[Dict[str, Any]]:
+    row = cursor.execute("SELECT * FROM daily_workouts WHERE id = ?;", (workout_id,)).fetchone()
+    if not row:
+        return None
+    workout = dict(row)
+    cursor.execute("SELECT * FROM workout_items WHERE daily_workout_id = ? ORDER BY id ASC;", (workout_id,))
+    workout["items"] = [dict(r) for r in cursor.fetchall()]
+    return workout
+
+def start_quick_workout(workout_id: int, db_path: Optional[Path] = None) -> Optional[Dict[str, Any]]:
+    """Halves the targets of today's unfinished exercises. Still counts for the streak.
+
+    Returns the updated workout, or None if it isn't a pending, full workout.
+    """
+    now_iso = local_now_iso(db_path)
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        workout = _load_workout(cursor, workout_id)
+        if not workout or workout["status"] != "pending" or workout["quick"]:
+            return None
+        for item in workout["items"]:
+            if item["status"] != "pending":
+                continue
+            new_target = scale_target(item["target_reps"], QUICK_FACTOR)
+            new_status = "completed" if item["completed_reps"] >= new_target else "pending"
+            cursor.execute(
+                "UPDATE workout_items SET target_reps = ?, full_target_reps = ?, status = ?, updated_at = ? WHERE id = ?;",
+                (new_target, item["target_reps"], new_status, now_iso, item["id"])
+            )
+        cursor.execute("UPDATE daily_workouts SET quick = 1 WHERE id = ?;", (workout_id,))
+        _refresh_workout_status(cursor, workout_id, now_iso)
+        conn.commit()
+        return _load_workout(cursor, workout_id)
+
+def undo_quick_workout(workout_id: int, db_path: Optional[Path] = None) -> Optional[Dict[str, Any]]:
+    """Restores the full targets after a quick workout was started by mistake."""
+    now_iso = local_now_iso(db_path)
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        workout = _load_workout(cursor, workout_id)
+        if not workout or not workout["quick"]:
+            return None
+        for item in workout["items"]:
+            if item["full_target_reps"] is None:
+                continue
+            full = item["full_target_reps"]
+            if item["status"] == "skipped":
+                new_status = "skipped"
+            else:
+                new_status = "completed" if item["completed_reps"] >= full else "pending"
+            cursor.execute(
+                "UPDATE workout_items SET target_reps = ?, full_target_reps = NULL, status = ?, updated_at = ? WHERE id = ?;",
+                (full, new_status, now_iso, item["id"])
+            )
+        cursor.execute("UPDATE daily_workouts SET quick = 0 WHERE id = ?;", (workout_id,))
+        _refresh_workout_status(cursor, workout_id, now_iso)
+        conn.commit()
+        return _load_workout(cursor, workout_id)
+
+# ============================================================================
+# DIFFICULTY FEEDBACK
+# ============================================================================
+# After a full workout: "too easy" twice in a row raises the exercise targets,
+# "too hard" lowers them right away. Quick workouts don't ask for feedback.
+
+FEEDBACK_LABELS = {"easy": "😴 Too easy", "ok": "👌 Just right", "hard": "🥵 Too hard"}
+FEEDBACK_ADJUST_PCT = 10
+EASY_ANSWERS_TO_RAISE = 2
+
+def _adjust_targets(cursor, exercise_ids: List[int], raise_targets: bool) -> List[Dict[str, Any]]:
+    changes = []
+    for ex_id in exercise_ids:
+        ex = cursor.execute("SELECT id, name, unit, target_reps FROM exercises WHERE id = ?;", (ex_id,)).fetchone()
+        if not ex:
+            continue
+        old = ex["target_reps"]
+        step = max(1, round(old * FEEDBACK_ADJUST_PCT / 100))
+        new = old + step if raise_targets else max(1, old - step)
+        if new == old:
+            continue
+        cursor.execute("UPDATE exercises SET target_reps = ? WHERE id = ?;", (new, ex_id))
+        changes.append({"name": ex["name"], "unit": ex["unit"], "old": old, "new": new})
+    return changes
+
+def record_feedback(workout_id: int, feedback: str, db_path: Optional[Path] = None) -> Dict[str, Any]:
+    """Saves how a completed workout felt and adjusts exercise targets.
+
+    Returns {"recorded": bool, "feedback", "changes": [...], "easy_streak": int}.
+    """
+    result = {"recorded": False, "feedback": feedback, "changes": [], "easy_streak": 0}
+    if feedback not in FEEDBACK_LABELS:
+        return result
+
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        workout = _load_workout(cursor, workout_id)
+        if not workout or workout["status"] != "completed" or workout["feedback"] or workout["quick"]:
+            return result
+
+        cursor.execute("UPDATE daily_workouts SET feedback = ? WHERE id = ?;", (feedback, workout_id))
+        row = cursor.execute("SELECT value FROM settings WHERE key = 'easy_feedback_streak';").fetchone()
+        try:
+            easy_streak = int(row["value"]) if row else 0
+        except ValueError:
+            easy_streak = 0
+
+        exercise_ids = sorted({it["exercise_id"] for it in workout["items"] if it["exercise_id"]})
+        if feedback == "easy":
+            # On a comeback day the targets were reduced on purpose, so "easy"
+            # says nothing about the normal targets.
+            if not workout["comeback_stage"]:
+                easy_streak += 1
+                if easy_streak >= EASY_ANSWERS_TO_RAISE:
+                    result["changes"] = _adjust_targets(cursor, exercise_ids, raise_targets=True)
+                    easy_streak = 0
+        elif feedback == "hard":
+            result["changes"] = _adjust_targets(cursor, exercise_ids, raise_targets=False)
+            easy_streak = 0
+        else:
+            easy_streak = 0
+
+        cursor.execute(
+            "INSERT INTO settings (key, value) VALUES ('easy_feedback_streak', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
+            (str(easy_streak),)
+        )
+        conn.commit()
+
+    result.update(recorded=True, easy_streak=easy_streak)
+    return result
 
 def generate_workout_heatmap(
     weeks_count: int = 4,

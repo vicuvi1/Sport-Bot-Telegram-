@@ -22,6 +22,10 @@ from monitoring import health, ping_healthcheck
 from services.summary_service import build_weekly_summary
 
 HEARTBEAT_MINUTES = 5
+
+# Same callback as the Today view's button (handlers.workout can't be
+# imported here: it imports this module).
+QUICK_WORKOUT_BUTTON = InlineKeyboardButton("⏱ Short on Time (50%)", callback_data="quick_workout")
 from services.workout_service import (
     get_or_create_daily_workout,
     calculate_streaks,
@@ -97,6 +101,8 @@ async def send_daily_workout_notification(bot: Bot, snoozed: bool = False) -> No
     msg += "Tap an exercise below to log, or tap *Complete All*:"
     
     keyboard.insert(0, [InlineKeyboardButton("⚡ Complete All as Scheduled", callback_data="complete_all")])
+    if not workout.get("quick"):
+        keyboard.append([QUICK_WORKOUT_BUTTON])
     keyboard.append([
         InlineKeyboardButton("💤 Snooze 1h", callback_data="snooze_reminder"),
         InlineKeyboardButton("🔄 Refresh", callback_data="refresh_today")
@@ -149,6 +155,8 @@ async def send_evening_nudge_notification(bot: Bot) -> None:
         [InlineKeyboardButton("⚡ Complete All as Scheduled", callback_data="complete_all")],
         [InlineKeyboardButton("🏋️ Open Today's Workout", callback_data="refresh_today")]
     ]
+    if not workout.get("quick"):
+        keyboard.append([QUICK_WORKOUT_BUTTON])
 
     try:
         await bot.send_message(

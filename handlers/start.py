@@ -62,7 +62,9 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     help_text = (
         "ℹ️ *Workout Bot Help & Features*\n\n"
         "• *🏋️ Today's Workout* (`/today`)\n"
-        "  View exercise targets with progress bars, mark done, tap `Complete All`, or start rest timers.\n\n"
+        "  View exercise targets with progress bars, mark done, tap `Complete All`, or start rest timers.\n"
+        "  Busy? Tap *⏱ Short on Time* for a 50% workout that still counts for your streak.\n"
+        "  After finishing, tell the bot how it felt (too easy / just right / too hard) to tune your targets.\n\n"
         "• *📊 Progress & Stats* (`/progress` or `/stats`)\n"
         "  Inspect workout completion rates and reps for Today, This Week, This Month, and All Time.\n\n"
         "• *📅 History* (`/history`)\n"

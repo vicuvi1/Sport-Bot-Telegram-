@@ -278,7 +278,7 @@ async def on_shutdown(application) -> None:
 # must never be silently swallowed by another feature's handler.
 WORKOUT_CALLBACK_PATTERN = (
     r"^(ex_(view|done|skip|delta|enter):|refresh_today$|complete_all$"
-    r"|start_timer:|snooze_reminder$)"
+    r"|start_timer:|snooze_reminder$|quick_workout$|quick_undo$|fb:)"
 )
 STATS_CALLBACK_PATTERN = r"^stats_(period:|show_|export_)"
 SETTINGS_CALLBACK_PATTERN = (
