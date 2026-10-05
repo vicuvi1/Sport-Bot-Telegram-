@@ -176,6 +176,7 @@ async def on_startup(application) -> None:
     """
     scheduler = setup_scheduler(application.bot)
     application.bot_data["scheduler"] = scheduler
+    _instrument_bot(application.bot)
 
 async def on_shutdown(application) -> None:
     """Cleans up background web server runner upon shutdown."""
@@ -214,11 +215,44 @@ def _timed(namespace: str, handler):
         started = time.perf_counter()
         query = getattr(update, "callback_query", None)
         data = query.data if query else "-"
+        user_id = getattr(getattr(query, "from_user", None), "id", "?")
+        # Logged the instant a REAL callback arrives from Telegram.
+        logger.info("LIVE CALLBACK RECEIVED data=%s user=%s namespace=%s", data, user_id, namespace)
         try:
             await handler(update, context)
         finally:
             _log_callback(namespace, data, time.perf_counter() - started)
     return wrapper
+
+
+def _instrument_bot(bot) -> None:
+    """Times the Telegram API calls that back button clicks, and logs each one.
+
+    Gives per-stage latency such as ``telegram_api=answer_callback_query duration=41ms``
+    and ``telegram_api=edit_message_text duration=210ms`` so the exact source of any
+    perceived button lag is visible in journalctl.
+    """
+    def _make(name, original):
+        async def wrapped(self, *args, **kwargs):
+            started = time.perf_counter()
+            try:
+                return await original(self, *args, **kwargs)
+            finally:
+                logger.info("telegram_api=%s duration=%.0fms",
+                            name, (time.perf_counter() - started) * 1000.0)
+        wrapped._hermes_timed = True
+        return wrapped
+
+    # PTB forbids setting these on the *instance*, so patch the class instead.
+    cls = type(bot)
+    for name in ("answer_callback_query", "edit_message_text", "send_message"):
+        original = getattr(cls, name, None)
+        if original is None or getattr(original, "_hermes_timed", False):
+            continue
+        try:
+            setattr(cls, name, _make(name, original))
+        except Exception as exc:  # never let instrumentation break the bot
+            logger.warning("Could not instrument bot.%s: %s", name, exc)
 
 
 def register_handlers(app) -> None:

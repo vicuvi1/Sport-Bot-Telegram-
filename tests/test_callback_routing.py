@@ -11,6 +11,7 @@ These tests verify two things for EVERY inline button in the bot:
 
 import asyncio
 import re
+import sys
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -22,6 +23,16 @@ from telegram.ext import ApplicationBuilder, CallbackQueryHandler
 import config
 import handlers.workout as workout_module
 import main as app_main
+
+# SAFETY GUARD: this module executes real callbacks (some of which write to the
+# database). It is only safe inside pytest, where tests/conftest.py redirects
+# config.DB_PATH to a throwaway temp database. Importing it from a standalone
+# script would run those callbacks against the PRODUCTION database.
+if "pytest" not in sys.modules:
+    raise RuntimeError(
+        "tests/test_callback_routing.py must only be imported under pytest "
+        "(its callbacks mutate the database). Use `pytest tests/` instead."
+    )
 
 
 # --------------------------------------------------------------------------
