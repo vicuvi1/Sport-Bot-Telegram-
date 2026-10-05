@@ -29,7 +29,7 @@
 
 Most workout apps want a subscription, an account, and your data. This one lives in the chat app you already open fifty times a day, and **everything stays on your own server**.
 
-| | |
+| What you get | How |
 | :--- | :--- |
 | 🎯 **It adapts to you** | Tell it a workout was *too easy* or *too hard* and your targets change. After a break it eases you back in at 70% → 85% → 100%. |
 | 🧪 **It proves you're changing** | A 10-minute fitness test on the 1st of every month: *push-ups 18 → 24 → 31*. Real numbers, not just streaks. |
