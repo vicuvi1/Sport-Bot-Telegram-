@@ -9,6 +9,7 @@ from telegram.ext import ContextTypes
 import config
 from database import bind_user, current_user_id, get_users, is_member, remove_user, set_setting
 from handlers.start import get_main_menu_keyboard, is_authorized, is_owner
+from services import compete_service as cmp
 from services import crew_service as cs
 from services import wake_service as ws
 from services.workout_service import get_current_date_str
@@ -65,7 +66,9 @@ def build_crew_menu(notice: str = "") -> tuple[str, InlineKeyboardMarkup]:
         snaps = [cs.day_snapshot(m["user_id"]) for m in members]
         lines.append(card([_member_line(s) for s in snaps]))
         lines.append(f"🤜🤛 Crew streak: <b>{cs.crew_streak()}</b> days (everyone trained)")
-        keyboard.append([InlineKeyboardButton("⚔️ Duel", callback_data="crew_duel")])
+        keyboard.append([InlineKeyboardButton("⚔️ Duel", callback_data="crew_duel"),
+                         InlineKeyboardButton("🏆 Points", callback_data="cmp_pts")])
+        keyboard.append([InlineKeyboardButton("🎯 Challenge", callback_data="cmp_chal")])
         keyboard.extend(_versus_buttons())
 
     keyboard.append([InlineKeyboardButton("☀️ Wake-up challenge", callback_data="wake_menu")])
@@ -112,7 +115,17 @@ def build_duel() -> tuple[str, InlineKeyboardMarkup]:
         else:
             lines.append(f"<b>{esc(leader['name'])}</b> leads today.")
 
+    table = cmp.standings(today)
+    lines.append("🏆 This week: " + " · ".join(f"{esc(r['name'])} <b>{r['points']}</b>" for r in table))
+    for f in cmp.open_forfeits():
+        if f["task"]:
+            lines.append(f"😬 {esc(cs.display_name(f['loser']))} still owes: {esc(f['task'])}")
+
     keyboard = _versus_buttons()
+    keyboard.append([
+        InlineKeyboardButton("🎯 Challenge", callback_data="cmp_chal"),
+        InlineKeyboardButton("🏆 Points", callback_data="cmp_pts"),
+    ])
     keyboard.append([
         InlineKeyboardButton("↻ Refresh", callback_data="crew_duel"),
         InlineKeyboardButton("👥 Crew", callback_data="crew_menu"),

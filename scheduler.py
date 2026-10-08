@@ -22,7 +22,7 @@ from database import (
     delete_scheduled_alert,
 )
 from monitoring import health, ping_healthcheck
-from services import crew_service, fitness_test_service, partner_service, wake_service
+from services import compete_service, crew_service, fitness_test_service, partner_service, wake_service
 from services.summary_service import build_weekly_summary
 from views import HTML, build_evening_nudge, build_today_workout_view, esc, quick_toggle_button
 
@@ -383,6 +383,9 @@ def reschedule_user_jobs(scheduler: AsyncIOScheduler, bot: Bot, user_id: int) ->
         # Fitness test reminder on the 1st, repeated on the 4th if not done
         ("monthly_test_reminder", send_monthly_test_reminder,
          CronTrigger(day="1,4", hour=hour, minute=minute, timezone=tz)),
+        # Crew: unfinished challenges are lost at 23:00 (their time)
+        ("challenge_deadline", compete_service.close_challenges,
+         CronTrigger(hour=compete_service.CHALLENGE_DEADLINE_HOUR, minute=0, timezone=tz)),
         # Crew: roast them at 21:00 if a crew mate trained today and they didn't
         ("crew_auto_roast", crew_service.send_auto_roast,
          CronTrigger(hour=crew_service.AUTO_ROAST_HOUR, minute=0, timezone=tz)),
@@ -436,8 +439,15 @@ def schedule_global_jobs(scheduler: AsyncIOScheduler, bot: Bot) -> None:
                       id="partner_missed_check", args=[owner, check_missed_workouts, bot],
                       replace_existing=True)
     # Crew live feed: deliver anything not sent right away (e.g. after an error).
-    scheduler.add_job(crew_service.deliver_events, trigger=IntervalTrigger(minutes=1),
+    scheduler.add_job(crew_service.tick, trigger=IntervalTrigger(minutes=1),
                       id="crew_events", args=[bot], replace_existing=True)
+    # Crew competition: Sunday results + forfeit, Monday auto-pick if the winner didn't.
+    scheduler.add_job(run_as, trigger=CronTrigger(day_of_week="sun", hour=20, minute=30, timezone=tz),
+                      id="crew_weekly_results", args=[owner, compete_service.send_weekly_results, bot],
+                      replace_existing=True)
+    scheduler.add_job(run_as, trigger=CronTrigger(day_of_week="mon", hour=12, minute=0, timezone=tz),
+                      id="crew_forfeit_autopick", args=[owner, compete_service.auto_pick_forfeits, bot],
+                      replace_existing=True)
     # External heartbeat every 5 minutes (only with HEALTHCHECK_URL).
     if config.HEALTHCHECK_URL:
         scheduler.add_job(send_heartbeat, trigger=IntervalTrigger(minutes=HEARTBEAT_MINUTES),

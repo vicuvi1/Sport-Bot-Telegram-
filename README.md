@@ -5,7 +5,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/telegram-bot-26A5E4?style=flat-square&logo=telegram&logoColor=white" alt="Telegram bot">
-  <img src="https://img.shields.io/badge/tests-170%20passing-22c55e?style=flat-square" alt="170 tests passing">
+  <img src="https://img.shields.io/badge/tests-253%20passing-22c55e?style=flat-square" alt="253 tests passing">
   <img src="https://img.shields.io/badge/AI-none%2C%20no%20API%20keys-0ea5e9?style=flat-square" alt="No AI, no API keys">
   <img src="https://img.shields.io/badge/license-MIT-a855f7?style=flat-square" alt="MIT license">
 </p>
@@ -34,8 +34,8 @@ Most workout apps want a subscription, an account, and your data. This one lives
 | 🎯 **It adapts to you** | Tell it a workout was *too easy* or *too hard* and your targets change. After a break it eases you back in at 70% → 85% → 100%. |
 | 🧪 **It proves you're changing** | A 10-minute fitness test on the 1st of every month: *push-ups 18 → 24 → 31*. Real numbers, not just streaks. |
 | 🤝 **It keeps you honest** | Invite a friend as your accountability partner: they get your weekly summary and can send you 👏 high-fives. |
-| 🛡 **It runs for years** | Verified backups, error reports in Telegram, an optional outside alarm if the server dies, and 170 automated tests. |
-| 🔒 **It's yours** | One authorized user, a local SQLite file, no AI, no API keys, no tracking. |
+| 🛡 **It runs for years** | Verified backups, error reports in Telegram, an optional outside alarm if the server dies, and 253 automated tests. |
+| 🔒 **It's yours** | You plus only the people you invite, a local SQLite file, no AI, no API keys, no tracking. |
 
 <p align="center">
   <img src="docs/assets/screens.svg" alt="Bot screens: today's workout with one-tap logging, adaptive targets with weekly summary, and fitness test progress with a partner high-five" width="100%">
@@ -82,8 +82,18 @@ Most workout apps want a subscription, an account, and your data. This one lives
   ```
 - **🔥 Streaks** that rest and paused days never break, **🏆 badges**, period stats, and **📤 CSV export**.
 
+### 👥 Train together (crew mode)
+Invite your brother (or up to 5 friends) with a single-use link. Everyone gets **their own** workouts, targets, reminder time, timezone and streak, and then:
+- **Live feed:** *"🏁 Andrei just finished today's workout. Your move 👀"* the moment it happens.
+- **⚔️ `/duel` scoreboard:** today side by side (progress, reps, streaks, wake-ups) plus a **crew streak** of days everyone trained.
+- **😈 Roast / 💪 Hype buttons:** savage, friendly or off (each person decides what they receive). Roasting someone who's already done while you aren't backfires.
+- **🤖 Auto-roast at 21:00** if a crew mate trained and you didn't.
+- **☀️ Wake-up challenge (`/wake`):** at your wake time, tap the right number within 10 minutes. The crew sees *on time ✅*, *42 min late 🐢* or *slept through 😴*.
+- **🏆 Weekly points (`/points`):** workout +10, full targets +5, woke on time +5, challenge +15, test PR +20, forfeit done +5. Sunday 20:30 the winner is crowned 👑 and picks the loser's **forfeit** (50 extra push-ups, cold shower...).
+- **🎯 Challenges (`/challenge`):** *"100 push-ups today"*, *"full workout before 09:00"*... Accept or 🐔 chicken out. Resolved automatically as you log, or at 23:00.
+
 ### 🤝 Stay accountable
-- **Accountability partner:** a single-use invite link (48 h). Your friend gets only what you tick: weekly summary ✅, fitness test results ✅, and optionally an alert after 3 missed workouts in a row (you're warned the morning before).
+- **Accountability partner** (owner only): a single-use invite link (48 h). Your friend gets only what you tick: weekly summary ✅, fitness test results ✅, and optionally an alert after 3 missed workouts in a row (you're warned the morning before).
 - They can send one 👏 high-five per day, and they can't see or change anything else. Either of you can end it anytime.
 - **🏖 Vacation / sick pause:** 3 days, 1–2 weeks or custom (up to 60 days).
 
@@ -130,7 +140,10 @@ Open your bot in Telegram and send **`/start`**. That's it. 🎉
 | `/history` | 4-week heatmap and recent workouts |
 | `/summary` | This week's summary on demand |
 | `/test` | Monthly fitness test and your progress history |
-| `/partner` | Invite or manage your accountability partner |
+| `/crew` · `/duel` | Your crew, invites, roast / hype · today's scoreboard |
+| `/wake` | Wake-up challenge: on/off and time |
+| `/points` · `/challenge` | Weekly points and forfeits · challenge a crew mate |
+| `/partner` | Invite or manage your accountability partner (owner) |
 | `/pause` | Vacation / sick pause |
 | `/badges` | Milestones and badges |
 | `/settings` | Reminder time, timezone, exercises, targets, progression |
@@ -208,7 +221,7 @@ flowchart LR
 ```
 
 - **Python 3.11+**, `python-telegram-bot` 22, `APScheduler` 3, SQLite. Pinned dependencies for long-term stability.
-- **170 tests** cover streaks, pauses, the comeback ramp, feedback, the fitness test, partner invites, backup verification, button routing and startup. Run them with `pytest -q`.
+- **253 tests** cover crew isolation and the multi-user migration, streaks, pauses, the comeback ramp, feedback, the fitness test, partner invites, backup verification, button routing and startup. Run them with `pytest -q`.
 
 ---
 
@@ -217,7 +230,7 @@ flowchart LR
 <details>
 <summary><b>Can other people use my bot?</b></summary>
 
-No. Only your `TELEGRAM_USER_ID` can use it. Your accountability partner (if you invite one) can only receive what you share and send high-fives. Everyone else is ignored.
+Only you (`TELEGRAM_USER_ID`) and the crew members you invite with a single-use link (up to 6 people). Each member only sees their own data plus the crew feed, duel and points. Your accountability partner (if you invite one) only receives what you share and can send high-fives. Everyone else is ignored.
 </details>
 
 <details>

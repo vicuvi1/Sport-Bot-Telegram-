@@ -84,6 +84,8 @@ def callback_texts() -> dict:
             "crew_roast:1", "crew_hype:1", "crew_remove:1", "crew_rmyes:999", "crew_leave", "crew_leaveyes",
         ],
         "wake": ["wake_menu", "wake_toggle", "wake_set:06:30", "wake_custom", "wake:2026-01-01:5"],
+        "compete": ["cmp_pts", "cmp_chal", "cmp_to:1", "cmp_kind:1:full", "cmp_acc:1", "cmp_dec:1",
+                    "cmp_fpick:1:0", "cmp_fdone:1"],
     }
 
 

@@ -284,6 +284,20 @@ EVENT_HANDLERS = {
 }
 
 
+# Extra things to do on every tick (e.g. resolving challenges): async fn(bot).
+TICK_HOOKS = []
+
+
+async def tick(bot) -> None:
+    """Runs after every workout action and once a minute: feed, then hooks."""
+    await deliver_events(bot)
+    for hook in TICK_HOOKS:
+        try:
+            await hook(bot)
+        except Exception as e:
+            logger.warning("Crew tick hook %s failed: %s", getattr(hook, "__name__", hook), e)
+
+
 async def deliver_events(bot) -> int:
     """Sends all undelivered crew events. Returns how many were processed."""
     events = pending_events()

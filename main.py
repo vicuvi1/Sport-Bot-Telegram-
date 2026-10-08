@@ -37,6 +37,7 @@ from handlers.settings import (
 from handlers.status import status_handler, get_version
 from handlers.crew import crew_command_handler, crew_callback_handler, duel_command_handler
 from handlers.wake import wake_command_handler, wake_callback_handler, wake_time_text_input
+from handlers.compete import challenge_command_handler, compete_callback_handler, points_command_handler
 from handlers.fitness import (
     fitness_command_handler,
     fitness_test_callback_handler,
@@ -318,6 +319,7 @@ PARTNER_CALLBACK_PATTERN = r"^partner_(menu$|invite$|remove$|remove_confirm$|tog
 CHEER_CALLBACK_PATTERN = r"^partner_cheer$"
 CREW_CALLBACK_PATTERN = r"^crew_"
 WAKE_CALLBACK_PATTERN = r"^wake[_:]"
+COMPETE_CALLBACK_PATTERN = r"^cmp_"
 
 
 def _log_callback(namespace: str, data: str, duration: float) -> None:
@@ -443,6 +445,8 @@ def register_handlers(app) -> None:
     app.add_handler(CommandHandler("crew", crew_command_handler))
     app.add_handler(CommandHandler("duel", duel_command_handler))
     app.add_handler(CommandHandler("wake", wake_command_handler))
+    app.add_handler(CommandHandler("challenge", challenge_command_handler))
+    app.add_handler(CommandHandler("points", points_command_handler))
 
     # 2. Callback query handlers — one explicit namespace each, plus a final
     #    fallback that only answers callbacks none of them claimed.
@@ -460,6 +464,8 @@ def register_handlers(app) -> None:
                                          pattern=CREW_CALLBACK_PATTERN))
     app.add_handler(CallbackQueryHandler(_timed("wake", wake_callback_handler),
                                          pattern=WAKE_CALLBACK_PATTERN))
+    app.add_handler(CallbackQueryHandler(_timed("compete", compete_callback_handler),
+                                         pattern=COMPETE_CALLBACK_PATTERN))
     # Pressed by the partner, not the owner: authorization happens inside.
     app.add_handler(CallbackQueryHandler(_timed("cheer", partner_cheer_handler, owner_only=False),
                                          pattern=CHEER_CALLBACK_PATTERN))

@@ -299,6 +299,34 @@ def init_db(db_path: Optional[Path] = None) -> None:
             );
         """)
 
+        # Crew competition (see compete_service): 1-on-1 challenges and the
+        # weekly loser's forfeit.
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS challenges (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                challenger INTEGER NOT NULL,
+                target INTEGER NOT NULL,
+                kind TEXT NOT NULL,
+                date TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'offered',
+                created_at TEXT NOT NULL,
+                resolved_at TEXT
+            );
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS forfeits (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                week_start TEXT NOT NULL,
+                winner INTEGER NOT NULL,
+                loser INTEGER NOT NULL,
+                task TEXT,
+                status TEXT NOT NULL DEFAULT 'choosing',
+                created_at TEXT NOT NULL,
+                done_at TEXT,
+                UNIQUE (week_start, loser)
+            );
+        """)
+
         # Scheduled one-off alerts (rest timers, snoozed reminders).
         # Persisted so they survive a bot restart; fire_at is a UTC ISO string.
         cursor.execute("""
@@ -394,6 +422,8 @@ def remove_user(user_id: int, db_path: Optional[Path] = None) -> None:
         raise ValueError("the owner can't be removed")
     with get_connection(db_path) as conn:
         conn.execute("DELETE FROM daily_workouts WHERE user_id = ?;", (user_id,))  # items cascade
+        conn.execute("DELETE FROM challenges WHERE challenger = ? OR target = ?;", (user_id, user_id))
+        conn.execute("DELETE FROM forfeits WHERE winner = ? OR loser = ?;", (user_id, user_id))
         for table in ("exercises", "pauses", "fitness_results", "wake_logs", "crew_events",
                       "user_settings", "users"):
             conn.execute(f"DELETE FROM {table} WHERE user_id = ?;", (user_id,))
