@@ -83,6 +83,7 @@ def callback_texts() -> dict:
             "crew_menu", "crew_duel", "crew_feed", "crew_roastlvl", "crew_invite", "crew_manage",
             "crew_roast:1", "crew_hype:1", "crew_remove:1", "crew_rmyes:999", "crew_leave", "crew_leaveyes",
         ],
+        "wake": ["wake_menu", "wake_toggle", "wake_set:06:30", "wake_custom", "wake:2026-01-01:5"],
     }
 
 

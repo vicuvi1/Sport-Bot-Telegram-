@@ -10,6 +10,7 @@ import config
 from database import bind_user, current_user_id, get_users, is_member, remove_user, set_setting
 from handlers.start import get_main_menu_keyboard, is_authorized, is_owner
 from services import crew_service as cs
+from services import wake_service as ws
 from services.workout_service import get_current_date_str
 from views import HTML, bar, card, esc, nice_date
 
@@ -67,6 +68,7 @@ def build_crew_menu(notice: str = "") -> tuple[str, InlineKeyboardMarkup]:
         keyboard.append([InlineKeyboardButton("⚔️ Duel", callback_data="crew_duel")])
         keyboard.extend(_versus_buttons())
 
+    keyboard.append([InlineKeyboardButton("☀️ Wake-up challenge", callback_data="wake_menu")])
     feed_on = cs.user_setting(me, "crew_feed", "1") == "1"
     level = cs.roast_level(me)
     keyboard.append([
@@ -93,9 +95,10 @@ def build_duel() -> tuple[str, InlineKeyboardMarkup]:
         medal = "🥇" if rank == 0 and cs.progress_ratio(s) > 0 else "▫️"
         status = "✅" if s["status"] == "completed" else ("🌿 rest" if s["status"] == "rest" else
                                                           "🏖 paused" if s["status"] == "paused" else "")
+        wake = ws.today_label(s["user_id"])
         blocks.append(
             f"{medal} <b>{esc(s['name'])}</b>  {s['done']}/{s['total']} {status}  🔥 {s['streak']}\n"
-            f"{bar(s['done'], s['total'] or 1)}  {s['reps']} reps"
+            f"{bar(s['done'], s['total'] or 1)}  {s['reps']} reps" + (f"\n{wake}" if wake else "")
         )
     lines.append(card(["\n\n".join(blocks)]))
     lines.append(f"\n🤜🤛 Crew streak: <b>{cs.crew_streak()}</b> days")

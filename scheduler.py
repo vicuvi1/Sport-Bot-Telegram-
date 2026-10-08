@@ -22,7 +22,7 @@ from database import (
     delete_scheduled_alert,
 )
 from monitoring import health, ping_healthcheck
-from services import crew_service, fitness_test_service, partner_service
+from services import crew_service, fitness_test_service, partner_service, wake_service
 from services.summary_service import build_weekly_summary
 from views import HTML, build_evening_nudge, build_today_workout_view, esc, quick_toggle_button
 
@@ -387,6 +387,20 @@ def reschedule_user_jobs(scheduler: AsyncIOScheduler, bot: Bot, user_id: int) ->
         ("crew_auto_roast", crew_service.send_auto_roast,
          CronTrigger(hour=crew_service.AUTO_ROAST_HOUR, minute=0, timezone=tz)),
     ]
+    # Wake-up challenge: the check at their wake time, and its deadline.
+    with as_user(user_id):
+        wake_on, wake_at = wake_service.wake_enabled(), wake_service.wake_time()
+    for name in ("wake_check", "wake_deadline"):
+        if scheduler.get_job(user_job_id(name, user_id)):
+            scheduler.remove_job(user_job_id(name, user_id))
+    if wake_on:
+        wh, wm = (int(p) for p in wake_at.split(":"))
+        dh, dm = wake_service.deadline_time(wake_at)
+        jobs += [
+            ("wake_check", wake_service.send_wake_check, CronTrigger(hour=wh, minute=wm, timezone=tz)),
+            ("wake_deadline", wake_service.close_wake_check, CronTrigger(hour=dh, minute=dm, timezone=tz)),
+        ]
+
     for name, func, trigger in jobs:
         scheduler.add_job(run_as, trigger=trigger, id=user_job_id(name, user_id),
                           args=[user_id, func, bot], replace_existing=True)

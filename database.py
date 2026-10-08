@@ -285,6 +285,20 @@ def init_db(db_path: Optional[Path] = None) -> None:
             );
         """)
 
+        # Wake-up challenge: one check per user per day (see wake_service).
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS wake_logs (
+                user_id INTEGER NOT NULL,
+                date TEXT NOT NULL,
+                target TEXT NOT NULL,
+                challenge INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                answered_at TEXT,
+                minutes_late INTEGER,
+                PRIMARY KEY (user_id, date)
+            );
+        """)
+
         # Scheduled one-off alerts (rest timers, snoozed reminders).
         # Persisted so they survive a bot restart; fire_at is a UTC ISO string.
         cursor.execute("""
@@ -380,7 +394,8 @@ def remove_user(user_id: int, db_path: Optional[Path] = None) -> None:
         raise ValueError("the owner can't be removed")
     with get_connection(db_path) as conn:
         conn.execute("DELETE FROM daily_workouts WHERE user_id = ?;", (user_id,))  # items cascade
-        for table in ("exercises", "pauses", "fitness_results", "user_settings", "users"):
+        for table in ("exercises", "pauses", "fitness_results", "wake_logs", "crew_events",
+                      "user_settings", "users"):
             conn.execute(f"DELETE FROM {table} WHERE user_id = ?;", (user_id,))
         conn.commit()
 

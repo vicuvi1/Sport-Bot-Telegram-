@@ -36,6 +36,7 @@ from handlers.settings import (
 )
 from handlers.status import status_handler, get_version
 from handlers.crew import crew_command_handler, crew_callback_handler, duel_command_handler
+from handlers.wake import wake_command_handler, wake_callback_handler, wake_time_text_input
 from handlers.fitness import (
     fitness_command_handler,
     fitness_test_callback_handler,
@@ -110,6 +111,9 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     # Check active input states (fitness test result, reps, or settings)
     if await fitness_test_text_input_handler(update, context):
+        return
+
+    if await wake_time_text_input(update, context):
         return
 
     if await custom_amount_message_handler(update, context):
@@ -313,6 +317,7 @@ FITNESS_CALLBACK_PATTERN = r"^test_(menu$|start$|skip$|stop$|history$|toggle_pul
 PARTNER_CALLBACK_PATTERN = r"^partner_(menu$|invite$|remove$|remove_confirm$|toggle:)"
 CHEER_CALLBACK_PATTERN = r"^partner_cheer$"
 CREW_CALLBACK_PATTERN = r"^crew_"
+WAKE_CALLBACK_PATTERN = r"^wake[_:]"
 
 
 def _log_callback(namespace: str, data: str, duration: float) -> None:
@@ -437,6 +442,7 @@ def register_handlers(app) -> None:
     app.add_handler(CommandHandler("stop", partner_stop_handler))
     app.add_handler(CommandHandler("crew", crew_command_handler))
     app.add_handler(CommandHandler("duel", duel_command_handler))
+    app.add_handler(CommandHandler("wake", wake_command_handler))
 
     # 2. Callback query handlers — one explicit namespace each, plus a final
     #    fallback that only answers callbacks none of them claimed.
@@ -452,6 +458,8 @@ def register_handlers(app) -> None:
                                          pattern=PARTNER_CALLBACK_PATTERN))
     app.add_handler(CallbackQueryHandler(_timed("crew", crew_callback_handler),
                                          pattern=CREW_CALLBACK_PATTERN))
+    app.add_handler(CallbackQueryHandler(_timed("wake", wake_callback_handler),
+                                         pattern=WAKE_CALLBACK_PATTERN))
     # Pressed by the partner, not the owner: authorization happens inside.
     app.add_handler(CallbackQueryHandler(_timed("cheer", partner_cheer_handler, owner_only=False),
                                          pattern=CHEER_CALLBACK_PATTERN))
