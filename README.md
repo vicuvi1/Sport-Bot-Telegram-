@@ -5,7 +5,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/telegram-bot-26A5E4?style=flat-square&logo=telegram&logoColor=white" alt="Telegram bot">
-  <img src="https://img.shields.io/badge/tests-253%20passing-22c55e?style=flat-square" alt="253 tests passing">
+  <img src="https://img.shields.io/badge/tests-270%20passing-22c55e?style=flat-square" alt="270 tests passing">
   <img src="https://img.shields.io/badge/AI-none%2C%20no%20API%20keys-0ea5e9?style=flat-square" alt="No AI, no API keys">
   <img src="https://img.shields.io/badge/license-MIT-a855f7?style=flat-square" alt="MIT license">
 </p>
@@ -34,7 +34,7 @@ Most workout apps want a subscription, an account, and your data. This one lives
 | 🎯 **It adapts to you** | Tell it a workout was *too easy* or *too hard* and your targets change. After a break it eases you back in at 70% → 85% → 100%. |
 | 🧪 **It proves you're changing** | A 10-minute fitness test on the 1st of every month: *push-ups 18 → 24 → 31*. Real numbers, not just streaks. |
 | 🤝 **It keeps you honest** | Invite a friend as your accountability partner: they get your weekly summary and can send you 👏 high-fives. |
-| 🛡 **It runs for years** | Verified backups, error reports in Telegram, an optional outside alarm if the server dies, and 253 automated tests. |
+| 🛡 **It runs for years** | Verified backups, error reports in Telegram, an optional outside alarm if the server dies, and 270 automated tests. |
 | 🔒 **It's yours** | You plus only the people you invite, a local SQLite file, no AI, no API keys, no tracking. |
 
 <p align="center">
@@ -183,6 +183,23 @@ journalctl -u workout-bot -f                        # live logs
 </details>
 
 <details>
+<summary><b>📱 Mini App (optional): a real app screen inside Telegram</b></summary>
+
+The bot serves the app on `127.0.0.1:8080`; [Caddy](https://caddyserver.com) puts it on HTTPS (Telegram requires it) and renews the certificate automatically.
+
+1. Point a domain (or a free DuckDNS name) at the server's IP.
+2. `sudo apt install -y caddy`, then put this in `/etc/caddy/Caddyfile` and `sudo systemctl reload caddy`:
+   ```
+   app.yourdomain.com {
+       encode gzip
+       reverse_proxy 127.0.0.1:8080
+   }
+   ```
+3. In `.env`: `WEBAPP_HOST=127.0.0.1` and `WEBAPP_URL=https://app.yourdomain.com`, then restart the bot.
+4. An **App** button appears next to the message box in Telegram. Opening `https://app.yourdomain.com` in a normal browser shows a demo with sample data.
+</details>
+
+<details>
 <summary><b>After an Ubuntu release upgrade</b></summary>
 
 A major upgrade replaces the system Python, which breaks the bot's virtualenv. Rebuild it with one command (your data is untouched):
@@ -221,7 +238,7 @@ flowchart LR
 ```
 
 - **Python 3.11+**, `python-telegram-bot` 22, `APScheduler` 3, SQLite. Pinned dependencies for long-term stability.
-- **253 tests** cover crew isolation and the multi-user migration, streaks, pauses, the comeback ramp, feedback, the fitness test, partner invites, backup verification, button routing and startup. Run them with `pytest -q`.
+- **270 tests** cover crew isolation and the multi-user migration, streaks, pauses, the comeback ramp, feedback, the fitness test, partner invites, backup verification, button routing and startup. Run them with `pytest -q`.
 
 ---
 
@@ -248,7 +265,7 @@ Yes: `/settings` → *Manage Exercises & Targets* lets you add, remove, pause ex
 <details>
 <summary><b>What about the Telegram Mini App?</b></summary>
 
-The code is in `webapp/` but it's disabled: Telegram only opens Mini Apps from a public HTTPS URL, which is one more thing to keep running. Everything works through regular chat buttons.
+Yes: `webapp/` is a full app (Home, Today, Duel, Progress, wake-up check, optional anime style) that opens inside Telegram from the **App** button. Every request is verified with Telegram's signed login data, and only crew members get in. It needs a public HTTPS address; see *Mini App (optional)* above. Without one, everything still works through the chat.
 </details>
 
 ---

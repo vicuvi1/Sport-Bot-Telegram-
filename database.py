@@ -53,6 +53,8 @@ USER_SETTING_KEYS = frozenset({
     "easy_feedback_streak", "test_pullups",
     # crew features
     "wake_time", "wake_enabled", "roast_level", "crew_feed",
+    # Mini App
+    "ui_anime",
 })
 
 
@@ -70,6 +72,7 @@ def default_user_settings() -> Dict[str, str]:
         "wake_time": "07:00",
         "roast_level": "savage",
         "crew_feed": "1",
+        "ui_anime": "1",
     }
 
 

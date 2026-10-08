@@ -408,6 +408,55 @@ def roast_level(user_id: int) -> str:
     return level if level in ROAST_LEVELS else "savage"
 
 
+async def send_roast(bot, bot_data: Dict[str, Any], sender: int, target: int) -> Dict[str, Any]:
+    """Roasts `target` from `sender` (bot buttons and the app share this).
+
+    Returns {"sent": bool, "message": text for the sender, "alert": show it prominently}.
+    """
+    from telegram import InlineKeyboardButton
+    from views import esc
+
+    if target == sender or not is_member(target):
+        return {"sent": False, "message": "Roasting yourself? Bold move 😅", "alert": False}
+    target_name = display_name(target)
+    level = roast_level(target)
+    if level == "off":
+        return {"sent": False, "message": f"{target_name} turned roasts off 🐔", "alert": True}
+
+    mine, theirs = day_snapshot(sender), day_snapshot(target)
+    if theirs["status"] == "completed" and mine["status"] != "completed":
+        # Backfire: you can't roast someone who's done when you aren't.
+        return {"sent": False, "alert": True,
+                "message": f"😅 {target_name} is already done today. You're at {mine['done']}/{mine['total']}... "
+                           "who's the loser now?"}
+    if not can_send_roast(bot_data, sender, target, get_current_date_str()):
+        return {"sent": False, "message": f"Easy 😅 That's {ROASTS_PER_DAY} roasts today.", "alert": True}
+
+    ahead = progress_ratio(mine) > progress_ratio(theirs)
+    line = pick_roast(level, me=target_name, them=mine["name"], their_reps=mine["reps"], sender_ahead=ahead)
+    sent = await send_html(
+        bot, target, f"😈 <b>Roast from {esc(mine['name'])}</b>\n\n{esc(line)}",
+        [[InlineKeyboardButton(f"😈 Roast {mine['name']} back", callback_data=f"crew_roast:{sender}")],
+         [InlineKeyboardButton("🏋️ My workout", callback_data="refresh_today")]])
+    return {"sent": sent, "alert": False,
+            "message": f"😈 Roast delivered to {target_name}" if sent else "Couldn't reach them right now."}
+
+
+async def send_hype(bot, sender: int, target: int) -> Dict[str, Any]:
+    """Hypes `target` from `sender`. Same return shape as send_roast."""
+    from telegram import InlineKeyboardButton
+    from views import esc
+
+    if target == sender or not is_member(target):
+        return {"sent": False, "message": "Self-hype noted 😄", "alert": False}
+    my_name = display_name(sender)
+    line = pick_line(HYPES, me=display_name(target), them=my_name)
+    sent = await send_html(bot, target, esc(line),
+                           [[InlineKeyboardButton(f"💪 Hype {my_name} back", callback_data=f"crew_hype:{sender}")]])
+    return {"sent": sent, "alert": False,
+            "message": f"💪 Hype sent to {display_name(target)}" if sent else "Couldn't reach them right now."}
+
+
 def can_send_roast(bot_data: Dict[str, Any], sender: int, target: int, date_str: str) -> bool:
     """At most ROASTS_PER_DAY roasts from one person to another per day."""
     counts = bot_data.setdefault("roast_counts", {})

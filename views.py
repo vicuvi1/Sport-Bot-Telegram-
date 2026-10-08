@@ -306,36 +306,54 @@ def build_evening_nudge(workout: Dict[str, Any], date_str: str) -> Tuple[str, In
 # Home
 # ---------------------------------------------------------------------------
 
-def week_strip(today_str: str) -> str:
-    """This week Mon..Sun as squares, e.g. 🟩🟩🟥⏳▫️▫️▫️."""
+DAY_SQUARES = {"done": SQ_DONE, "paused": SQ_PAUSED, "rest": SQ_REST, "future": SQ_FUTURE,
+               "today": SQ_TODAY, "partial": SQ_PARTIAL, "missed": SQ_MISSED}
+
+
+def day_codes(start, end, today_str: str) -> List[Dict[str, str]]:
+    """How each day from `start` to `end` (dates) went for the current user:
+    [{"date", "code"}], code one of done / partial / missed / rest / paused / today / future."""
     today = datetime.strptime(today_str, "%Y-%m-%d").date()
-    monday = today - timedelta(days=today.weekday())
     workout_days = get_setting("workout_days", "0,1,2,3,4,5,6")
     paused = get_paused_dates()
     with get_connection() as conn:
         rows = conn.execute(
             "SELECT date, status FROM daily_workouts WHERE user_id = ? AND date >= ? AND date <= ?;",
-            (current_user_id(), monday.isoformat(), (monday + timedelta(days=6)).isoformat())
+            (current_user_id(), start.isoformat(), end.isoformat())
         ).fetchall()
     status = {r["date"]: r["status"] for r in rows}
 
-    squares = []
-    for i in range(7):
-        d = monday + timedelta(days=i)
+    codes = []
+    d = start
+    while d <= end:
         s = status.get(d.isoformat())
         if s == "completed":
-            squares.append(SQ_DONE)
+            code = "done"
         elif s == "paused" or d.isoformat() in paused:
-            squares.append(SQ_PAUSED)
+            code = "paused"
         elif s == "rest" or not is_day_active(d.weekday(), workout_days):
-            squares.append(SQ_REST)
+            code = "rest"
         elif d > today:
-            squares.append(SQ_FUTURE)
+            code = "future"
         elif d == today:
-            squares.append(SQ_TODAY)
+            code = "today"
         else:
-            squares.append(SQ_PARTIAL if s == "skipped" else SQ_MISSED)
-    return "".join(squares)
+            code = "partial" if s == "skipped" else "missed"
+        codes.append({"date": d.isoformat(), "code": code})
+        d += timedelta(days=1)
+    return codes
+
+
+def week_codes(today_str: str) -> List[Dict[str, str]]:
+    """This week, Monday to Sunday."""
+    today = datetime.strptime(today_str, "%Y-%m-%d").date()
+    monday = today - timedelta(days=today.weekday())
+    return day_codes(monday, monday + timedelta(days=6), today_str)
+
+
+def week_strip(today_str: str) -> str:
+    """This week Mon..Sun as squares, e.g. 🟩🟩🟥⏳▫️▫️▫️."""
+    return "".join(DAY_SQUARES[d["code"]] for d in week_codes(today_str))
 
 
 def build_home(name: str, workout: Dict[str, Any], today_str: str,

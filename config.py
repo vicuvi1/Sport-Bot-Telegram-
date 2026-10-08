@@ -34,12 +34,15 @@ DB_PATH = DATA_DIR / "workout.db"
 BACKUP_DIR = BASE_DIR / "backups"
 BACKUP_DIR.mkdir(parents=True, exist_ok=True)
 
-# Telegram Mini App web server settings
-WEBAPP_HOST = os.getenv("WEBAPP_HOST", "0.0.0.0").strip()
+# Telegram Mini App web server settings. The app listens locally; a reverse
+# proxy (Caddy) serves it publicly over HTTPS at WEBAPP_URL, which Telegram
+# requires. Without an https:// WEBAPP_URL the app stays off.
+WEBAPP_HOST = os.getenv("WEBAPP_HOST", "127.0.0.1").strip()
 try:
     WEBAPP_PORT = int(os.getenv("WEBAPP_PORT", "8080").strip())
 except ValueError:
     WEBAPP_PORT = 8080
 WEBAPP_URL = os.getenv("WEBAPP_URL", f"http://localhost:{WEBAPP_PORT}").strip()
 WEBAPP_DIR = BASE_DIR / "webapp"
+WEBAPP_ENABLED = WEBAPP_URL.startswith("https://")
 

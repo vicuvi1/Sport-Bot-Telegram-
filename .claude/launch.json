@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "mini-app",
+      "runtimeExecutable": ".venv/Scripts/python",
+      "runtimeArgs": ["-c", "from aiohttp import web; from webapp.server import create_webapp; web.run_app(create_webapp(bot_token='local-preview'), host='127.0.0.1', port=8099)"],
+      "port": 8099
+    }
+  ]
+}

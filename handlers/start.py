@@ -106,6 +106,8 @@ def build_home_text(first_name: str) -> str:
     if is_owner():
         partner = ps.get_partner()
         extras.append(f"🤝 Partner: <b>{esc(partner['name'])}</b>" if partner else "🤝 No partner yet: /partner")
+    if config.WEBAPP_ENABLED:
+        extras.append("📱 <b>New:</b> tap <b>App</b> next to the message box for the full app.")
 
     return build_home(sanitize_label(first_name or "", max_length=30), workout, today_str, extras)
 

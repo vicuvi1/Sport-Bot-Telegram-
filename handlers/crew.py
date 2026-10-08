@@ -169,48 +169,13 @@ async def duel_command_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 # ---------------------------------------------------------------------------
 
 async def _roast(update: Update, context: ContextTypes.DEFAULT_TYPE, target: int) -> None:
-    query = update.callback_query
-    me = current_user_id()
-    if target == me or not is_member(target):
-        await query.answer("Roasting yourself? Bold move 😅")
-        return
-    target_name = cs.display_name(target)
-    level = cs.roast_level(target)
-    if level == "off":
-        await query.answer(f"{target_name} turned roasts off 🐔", show_alert=True)
-        return
-
-    mine, theirs = cs.day_snapshot(me), cs.day_snapshot(target)
-    if theirs["status"] == "completed" and mine["status"] != "completed":
-        # Backfire: you can't roast someone who's done when you aren't.
-        await query.answer(f"😅 {target_name} is already done today. You're at {mine['done']}/{mine['total']}... "
-                           "who's the loser now?", show_alert=True)
-        return
-    if not cs.can_send_roast(context.bot_data, me, target, get_current_date_str()):
-        await query.answer(f"Easy 😅 That's {cs.ROASTS_PER_DAY} roasts today.", show_alert=True)
-        return
-
-    ahead = cs.progress_ratio(mine) > cs.progress_ratio(theirs)
-    line = cs.pick_roast(level, me=target_name, them=mine["name"], their_reps=mine["reps"], sender_ahead=ahead)
-    sent = await cs.send_html(
-        context.bot, target, f"😈 <b>Roast from {esc(mine['name'])}</b>\n\n{esc(line)}",
-        [[InlineKeyboardButton(f"😈 Roast {mine['name']} back", callback_data=f"crew_roast:{me}")],
-         [InlineKeyboardButton("🏋️ My workout", callback_data="refresh_today")]])
-    await query.answer(f"😈 Roast delivered to {target_name}" if sent else "Couldn't reach them right now.")
+    result = await cs.send_roast(context.bot, context.bot_data, current_user_id(), target)
+    await update.callback_query.answer(result["message"], show_alert=result["alert"])
 
 
 async def _hype(update: Update, context: ContextTypes.DEFAULT_TYPE, target: int) -> None:
-    query = update.callback_query
-    me = current_user_id()
-    if target == me or not is_member(target):
-        await query.answer("Self-hype noted 😄")
-        return
-    my_name = cs.display_name(me)
-    line = cs.pick_line(cs.HYPES, me=cs.display_name(target), them=my_name)
-    sent = await cs.send_html(
-        context.bot, target, esc(line),
-        [[InlineKeyboardButton(f"💪 Hype {my_name} back", callback_data=f"crew_hype:{me}")]])
-    await query.answer(f"💪 Hype sent to {cs.display_name(target)}" if sent else "Couldn't reach them right now.")
+    result = await cs.send_hype(context.bot, current_user_id(), target)
+    await update.callback_query.answer(result["message"], show_alert=result["alert"])
 
 
 async def crew_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

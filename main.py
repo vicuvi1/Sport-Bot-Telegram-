@@ -257,13 +257,7 @@ async def web_app_data_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         logger.error(f"Error handling web_app_data: {e}")
 
 async def on_startup(application) -> None:
-    """Initializes APScheduler on bot startup.
-
-    NOTE: The aiohttp Telegram Mini App web server is intentionally NOT started.
-    The Mini App is disabled (its UI needs a public HTTPS URL to be usable from
-    Telegram), so there is no reason to bind port 8080 or run an extra service.
-    Re-enable by starting ``webapp.server.start_webapp_server`` here if needed.
-    """
+    """Starts the scheduler, monitoring and (with an https WEBAPP_URL) the Mini App."""
     scheduler = setup_scheduler(application.bot)
     application.bot_data["scheduler"] = scheduler
     application.bot_data["started_at"] = datetime.now(timezone.utc)
@@ -275,7 +269,24 @@ async def on_startup(application) -> None:
     application.bot_data["version"] = get_version()
     application.bot_data["callbacks_received"] = 0
     _instrument_bot(application.bot)
+    await start_mini_app(application)
     await send_startup_message(application)
+
+
+async def start_mini_app(application) -> None:
+    """Serves the Mini App and puts an "App" button next to the message box."""
+    if not config.WEBAPP_ENABLED:
+        logger.info("Mini App off (WEBAPP_URL is not https://).")
+        return
+    from telegram import MenuButtonWebApp, WebAppInfo
+    from webapp.server import start_webapp_server
+    try:
+        application.bot_data["webapp_runner"] = await start_webapp_server(application.bot, application.bot_data)
+        await application.bot.set_chat_menu_button(
+            menu_button=MenuButtonWebApp(text="App", web_app=WebAppInfo(url=config.WEBAPP_URL)))
+    except Exception as e:
+        # The bot keeps working without the app.
+        logger.error("Could not start the Mini App: %s", e, exc_info=True)
 
 
 async def send_startup_message(application) -> None:
