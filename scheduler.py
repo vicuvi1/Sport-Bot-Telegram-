@@ -10,6 +10,9 @@ from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 
 import config
 from database import (
+    as_user,
+    current_user_id,
+    get_users,
     get_setting,
     create_backup,
     verify_backup,
@@ -19,7 +22,7 @@ from database import (
     delete_scheduled_alert,
 )
 from monitoring import health, ping_healthcheck
-from services import fitness_test_service, partner_service
+from services import crew_service, fitness_test_service, partner_service
 from services.summary_service import build_weekly_summary
 from views import HTML, build_evening_nudge, build_today_workout_view, esc, quick_toggle_button
 
@@ -45,7 +48,7 @@ async def send_daily_workout_notification(bot: Bot, snoozed: bool = False) -> No
         logger.info("Morning workout notification skipped: notifications disabled.")
         return
 
-    if not config.USER_ID:
+    if not current_user_id():
         logger.warning("No USER_ID configured, cannot send daily workout notification.")
         return
 
@@ -79,7 +82,7 @@ async def send_daily_workout_notification(bot: Bot, snoozed: bool = False) -> No
             InlineKeyboardButton("💤 Snooze 1h", callback_data="snooze_reminder")]])
 
     try:
-        await bot.send_message(chat_id=config.USER_ID, text=text, parse_mode=HTML, reply_markup=markup)
+        await bot.send_message(chat_id=current_user_id(), text=text, parse_mode=HTML, reply_markup=markup)
         logger.info(f"Daily workout notification sent successfully for {today_str}.")
     except Exception as e:
         logger.error(f"Error sending daily workout notification: {e}")
@@ -87,7 +90,7 @@ async def send_daily_workout_notification(bot: Bot, snoozed: bool = False) -> No
 async def send_evening_nudge_notification(bot: Bot) -> None:
     """Sends an evening streak-saver reminder if today's workout is still incomplete."""
     notifications_on = get_setting("notifications_enabled", "1")
-    if notifications_on != "1" or not config.USER_ID:
+    if notifications_on != "1" or not current_user_id():
         return
 
     tz_str = get_setting("timezone", config.TIMEZONE)
@@ -105,7 +108,7 @@ async def send_evening_nudge_notification(bot: Bot) -> None:
     text, markup = build_evening_nudge(workout, today_str)
     try:
         await bot.send_message(
-            chat_id=config.USER_ID,
+            chat_id=current_user_id(),
             text=text,
             parse_mode=HTML,
             reply_markup=markup
@@ -165,17 +168,20 @@ def build_health_line() -> str:
     return "🩺 Bot health: " + ", ".join(parts)
 
 async def send_weekly_summary(bot: Bot) -> None:
-    """Sunday evening summary: the week's progress plus a bot health line."""
-    if not config.USER_ID or get_setting("notifications_enabled", "1") != "1":
+    """Sunday evening summary: the week's progress (plus bot health for the owner)."""
+    if not current_user_id() or get_setting("notifications_enabled", "1") != "1":
         return
+    is_owner = current_user_id() == config.USER_ID
+    # The accountability partner and the bot-health line belong to the owner.
+    partner = partner_service.shares("weekly") if is_owner else None
     try:
-        partner = partner_service.shares("weekly")
-        health_line = build_health_line()
+        health_line = build_health_line() if is_owner else ""
         if partner:
             health_line = f"🤝 Shared with {esc(partner['name'])}.\n{health_line}"
         text = build_weekly_summary(health_line=health_line)
-        await bot.send_message(chat_id=config.USER_ID, text=text, parse_mode=HTML)
-        health.errors_since_summary = 0
+        await bot.send_message(chat_id=current_user_id(), text=text, parse_mode=HTML)
+        if is_owner:
+            health.errors_since_summary = 0
         logger.info("Weekly summary sent.")
     except Exception as e:
         logger.error(f"Error sending weekly summary: {e}")
@@ -189,7 +195,7 @@ async def send_weekly_summary(bot: Bot) -> None:
 
 async def send_monthly_test_reminder(bot: Bot) -> None:
     """On the 1st (and again on the 4th if still not done): time for the fitness test."""
-    if not config.USER_ID or get_setting("notifications_enabled", "1") != "1":
+    if not current_user_id() or get_setting("notifications_enabled", "1") != "1":
         return
     today_str = get_current_date_str()
     month = fitness_test_service.current_month(today_str)
@@ -203,7 +209,7 @@ async def send_monthly_test_reminder(bot: Bot) -> None:
     )
     markup = InlineKeyboardMarkup([[InlineKeyboardButton("▶️ Start Test", callback_data="test_start")]])
     try:
-        await bot.send_message(chat_id=config.USER_ID, text=text, parse_mode="Markdown", reply_markup=markup)
+        await bot.send_message(chat_id=current_user_id(), text=text, parse_mode="Markdown", reply_markup=markup)
     except Exception as e:
         logger.error(f"Error sending fitness test reminder: {e}")
 
@@ -259,7 +265,9 @@ async def fire_alert(bot: Bot, alert_id: int) -> None:
     delete_scheduled_alert(alert_id)
 
     if alert["kind"] == ALERT_SNOOZE:
-        await send_daily_workout_notification(bot, snoozed=True)
+        # The alert's chat is the user who snoozed.
+        with as_user(alert["chat_id"]):
+            await send_daily_workout_notification(bot, snoozed=True)
         return
 
     try:
@@ -322,107 +330,102 @@ def restore_alerts(scheduler: AsyncIOScheduler, bot: Bot) -> int:
     return restored
 
 def setup_scheduler(bot: Bot) -> AsyncIOScheduler:
-    """Configures and starts APScheduler for daily reminders, evening nudges, and weekly backups."""
+    """Configures and starts APScheduler: global jobs plus one set per crew member."""
     # APScheduler's default misfire grace time is 1 second: if the event loop is
     # briefly busy at 07:00:00, the morning reminder would be skipped for the day.
     scheduler = AsyncIOScheduler(job_defaults={"misfire_grace_time": 300, "coalesce": True})
-    reschedule_daily_job(scheduler, bot)
+    schedule_global_jobs(scheduler, bot)
+    for user in get_users():
+        reschedule_user_jobs(scheduler, bot, user["user_id"])
     restore_alerts(scheduler, bot)
     scheduler.start()
     return scheduler
 
-def reschedule_daily_job(scheduler: AsyncIOScheduler, bot: Bot) -> None:
-    """Reschedules all cron jobs based on the current settings."""
+
+def user_job_id(name: str, user_id: int) -> str:
+    """Per-user job ids, e.g. 'daily_morning_workout:123'."""
+    return f"{name}:{user_id}"
+
+
+async def run_as(user_id: int, job, *args) -> None:
+    """Runs a scheduled job as `user_id` (their settings, data and chat)."""
+    with as_user(user_id):
+        await job(*args)
+
+
+def _user_time_and_tz():
     time_str = get_setting("workout_time", config.WORKOUT_TIME or "07:00")
     tz_str = get_setting("timezone", config.TIMEZONE or "Europe/Chisinau")
-
     try:
         hour, minute = [int(p) for p in time_str.split(":")[:2]]
     except Exception:
         hour, minute = 7, 0
-
     try:
         tz = ZoneInfo(tz_str)
     except Exception:
-        tz = ZoneInfo("UTC")
+        tz, tz_str = ZoneInfo("UTC"), "UTC"
+    return hour, minute, tz, tz_str
 
-    # 1. Morning Workout Reminder
-    morning_job_id = "daily_morning_workout"
-    if scheduler.get_job(morning_job_id):
-        scheduler.remove_job(morning_job_id)
 
-    scheduler.add_job(
-        send_daily_workout_notification,
-        trigger=CronTrigger(hour=hour, minute=minute, timezone=tz),
-        id=morning_job_id,
-        args=[bot],
-        replace_existing=True
-    )
+# Extra per-user jobs registered by other modules (e.g. wake-up checks):
+# callables (scheduler, bot, user_id) called from reschedule_user_jobs.
+USER_JOB_HOOKS = []
 
-    # 2. Evening Streak-Saver Nudge at 19:00
-    nudge_job_id = "daily_evening_nudge"
-    if scheduler.get_job(nudge_job_id):
-        scheduler.remove_job(nudge_job_id)
 
-    scheduler.add_job(
-        send_evening_nudge_notification,
-        trigger=CronTrigger(hour=19, minute=0, timezone=tz),
-        id=nudge_job_id,
-        args=[bot],
-        replace_existing=True
-    )
+def reschedule_user_jobs(scheduler: AsyncIOScheduler, bot: Bot, user_id: int) -> None:
+    """(Re)creates one person's reminders from their own time and timezone."""
+    with as_user(user_id):
+        hour, minute, tz, tz_str = _user_time_and_tz()
+    jobs = [
+        ("daily_morning_workout", send_daily_workout_notification, CronTrigger(hour=hour, minute=minute, timezone=tz)),
+        ("daily_evening_nudge", send_evening_nudge_notification, CronTrigger(hour=19, minute=0, timezone=tz)),
+        ("weekly_summary", send_weekly_summary, CronTrigger(day_of_week="sun", hour=20, minute=0, timezone=tz)),
+        # Fitness test reminder on the 1st, repeated on the 4th if not done
+        ("monthly_test_reminder", send_monthly_test_reminder,
+         CronTrigger(day="1,4", hour=hour, minute=minute, timezone=tz)),
+        # Crew: roast them at 21:00 if a crew mate trained today and they didn't
+        ("crew_auto_roast", crew_service.send_auto_roast,
+         CronTrigger(hour=crew_service.AUTO_ROAST_HOUR, minute=0, timezone=tz)),
+    ]
+    for name, func, trigger in jobs:
+        scheduler.add_job(run_as, trigger=trigger, id=user_job_id(name, user_id),
+                          args=[user_id, func, bot], replace_existing=True)
+    for hook in USER_JOB_HOOKS:
+        hook(scheduler, bot, user_id)
+    logger.info(f"Scheduled user {user_id}: morning {hour:02d}:{minute:02d}, nudge 19:00, "
+                f"Sunday summary 20:00 ({tz_str}).")
 
-    # 3. Weekly Sunday Backup at 23:55
-    backup_job_id = "weekly_sunday_backup"
-    if scheduler.get_job(backup_job_id):
-        scheduler.remove_job(backup_job_id)
 
-    scheduler.add_job(
-        send_weekly_backup_notification,
-        trigger=CronTrigger(day_of_week="sun", hour=23, minute=55, timezone=tz),
-        id=backup_job_id,
-        args=[bot],
-        replace_existing=True
-    )
+def remove_user_jobs(scheduler: AsyncIOScheduler, user_id: int) -> None:
+    for job in scheduler.get_jobs():
+        if job.id.endswith(f":{user_id}"):
+            scheduler.remove_job(job.id)
 
-    # 4. Weekly summary, Sunday 20:00
-    scheduler.add_job(
-        send_weekly_summary,
-        trigger=CronTrigger(day_of_week="sun", hour=20, minute=0, timezone=tz),
-        id="weekly_summary",
-        args=[bot],
-        replace_existing=True
-    )
 
-    # 4b. Monthly fitness test reminder on the 1st, repeated on the 4th if not done
-    scheduler.add_job(
-        send_monthly_test_reminder,
-        trigger=CronTrigger(day="1,4", hour=hour, minute=minute, timezone=tz),
-        id="monthly_test_reminder",
-        args=[bot],
-        replace_existing=True
-    )
+def reschedule_daily_job(scheduler: AsyncIOScheduler, bot: Bot) -> None:
+    """Reschedules the current user's jobs (after they change time or timezone)."""
+    reschedule_user_jobs(scheduler, bot, current_user_id())
 
-    # 4c. Accountability partner: missed-workouts check at midday
-    scheduler.add_job(
-        check_missed_workouts,
-        trigger=CronTrigger(hour=12, minute=0, timezone=tz),
-        id="partner_missed_check",
-        args=[bot],
-        replace_existing=True
-    )
 
-    # 5. External heartbeat every 5 minutes (no-op without HEALTHCHECK_URL).
-    # Not tied to the user's timezone, so it is (re)added with the same id.
+def schedule_global_jobs(scheduler: AsyncIOScheduler, bot: Bot) -> None:
+    """Bot-wide jobs, run as / delivered to the owner."""
+    owner = config.USER_ID
+    with as_user(owner):
+        _, _, tz, _ = _user_time_and_tz()
+
+    # Weekly Sunday backup of the whole database (owner only).
+    scheduler.add_job(run_as, trigger=CronTrigger(day_of_week="sun", hour=23, minute=55, timezone=tz),
+                      id="weekly_sunday_backup", args=[owner, send_weekly_backup_notification, bot],
+                      replace_existing=True)
+    # Owner's accountability partner: missed-workouts check at midday.
+    scheduler.add_job(run_as, trigger=CronTrigger(hour=12, minute=0, timezone=tz),
+                      id="partner_missed_check", args=[owner, check_missed_workouts, bot],
+                      replace_existing=True)
+    # Crew live feed: deliver anything not sent right away (e.g. after an error).
+    scheduler.add_job(crew_service.deliver_events, trigger=IntervalTrigger(minutes=1),
+                      id="crew_events", args=[bot], replace_existing=True)
+    # External heartbeat every 5 minutes (only with HEALTHCHECK_URL).
     if config.HEALTHCHECK_URL:
-        scheduler.add_job(
-            send_heartbeat,
-            trigger=IntervalTrigger(minutes=HEARTBEAT_MINUTES),
-            id="heartbeat",
-            args=[bot],
-            next_run_time=datetime.now(timezone.utc),
-            replace_existing=True
-        )
-
-    logger.info(f"Scheduled morning reminder ({hour:02d}:{minute:02d}), evening nudge (19:00), "
-                f"Sunday summary (20:00) and backup (23:55) in {tz_str}.")
+        scheduler.add_job(send_heartbeat, trigger=IntervalTrigger(minutes=HEARTBEAT_MINUTES),
+                          id="heartbeat", args=[bot], next_run_time=datetime.now(timezone.utc),
+                          replace_existing=True)

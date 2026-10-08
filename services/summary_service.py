@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from database import get_connection
+from database import get_connection, current_user_id
 from services.workout_service import calculate_streaks, get_current_date_str, get_paused_dates
 
 
@@ -22,18 +22,18 @@ def _week_numbers(start: str, end: str, db_path: Optional[Path]) -> Dict[str, An
             SELECT
                 SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) AS done,
                 SUM(CASE WHEN status NOT IN ('rest', 'paused') THEN 1 ELSE 0 END) AS scheduled
-            FROM daily_workouts WHERE date >= ? AND date <= ?;
+            FROM daily_workouts WHERE user_id = ? AND date >= ? AND date <= ?;
             """,
-            (start, end)
+            (current_user_id(), start, end)
         ).fetchone()
         rows = conn.execute(
             """
             SELECT wi.exercise_name AS name, wi.unit AS unit, SUM(wi.completed_reps) AS total
             FROM workout_items wi JOIN daily_workouts dw ON wi.daily_workout_id = dw.id
-            WHERE dw.date >= ? AND dw.date <= ?
+            WHERE dw.user_id = ? AND dw.date >= ? AND dw.date <= ?
             GROUP BY wi.exercise_name, wi.unit;
             """,
-            (start, end)
+            (current_user_id(), start, end)
         ).fetchall()
     return {
         "done": counts["done"] or 0,
@@ -51,10 +51,10 @@ def get_new_records(start: str, end: str, db_path: Optional[Path] = None) -> Lis
                    MAX(CASE WHEN dw.date >= ? AND dw.date <= ? THEN wi.completed_reps END) AS this_week,
                    MAX(CASE WHEN dw.date < ? THEN wi.completed_reps END) AS before
             FROM workout_items wi JOIN daily_workouts dw ON wi.daily_workout_id = dw.id
-            WHERE dw.date <= ?
+            WHERE dw.user_id = ? AND dw.date <= ?
             GROUP BY wi.exercise_name, wi.unit;
             """,
-            (start, end, start, end)
+            (start, end, start, current_user_id(), end)
         ).fetchall()
     # A "record" needs earlier history to beat; the very first week has none.
     return [

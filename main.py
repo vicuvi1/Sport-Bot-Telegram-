@@ -11,14 +11,15 @@ from telegram.ext import (
     CommandHandler,
     MessageHandler,
     CallbackQueryHandler,
+    TypeHandler,
     ContextTypes,
     filters
 )
 
 import config
-from database import init_db, create_backup
+from database import init_db, create_backup, bind_user, is_member, NOBODY
 from scheduler import setup_scheduler, check_backup
-from handlers.start import start_handler, help_handler, is_authorized
+from handlers.start import start_handler, help_handler, is_authorized, is_owner
 from handlers.workout import today_handler, workout_callback_handler, custom_amount_message_handler, build_today_workout_view
 from handlers.stats import (
     stats_handler,
@@ -34,6 +35,7 @@ from handlers.settings import (
     pause_command_handler
 )
 from handlers.status import status_handler, get_version
+from handlers.crew import crew_command_handler, crew_callback_handler, duel_command_handler
 from handlers.fitness import (
     fitness_command_handler,
     fitness_test_callback_handler,
@@ -87,6 +89,12 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     elif text == "📅 History":
         await history_handler(update, context)
         return
+    elif text == "⚔️ Duel":
+        await duel_command_handler(update, context)
+        return
+    elif text == "👥 Crew":
+        await crew_command_handler(update, context)
+        return
     elif text == "⚙️ Settings":
         await settings_handler(update, context)
         return
@@ -138,8 +146,11 @@ async def summary_command_handler(update: Update, context: ContextTypes.DEFAULT_
     await update.message.reply_text(text, parse_mode="HTML")
 
 async def backup_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handles direct /backup command."""
+    """Handles direct /backup command (owner only: the file holds everyone's data)."""
     if not is_authorized(update):
+        return
+    if not is_owner():
+        await update.message.reply_text("🔒 Only the bot owner can use this. Your crew features are in /crew.")
         return
 
     await update.message.reply_text("⏳ Generating database backup...")
@@ -301,6 +312,7 @@ SETTINGS_CALLBACK_PATTERN = (
 FITNESS_CALLBACK_PATTERN = r"^test_(menu$|start$|skip$|stop$|history$|toggle_pullups$|timer:)"
 PARTNER_CALLBACK_PATTERN = r"^partner_(menu$|invite$|remove$|remove_confirm$|toggle:)"
 CHEER_CALLBACK_PATTERN = r"^partner_cheer$"
+CREW_CALLBACK_PATTERN = r"^crew_"
 
 
 def _log_callback(namespace: str, data: str, duration: float) -> None:
@@ -388,8 +400,23 @@ def _instrument_bot(bot) -> None:
             logger.warning("Could not instrument bot.%s: %s", name, exc)
 
 
+async def bind_update_user(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Runs before every other handler: binds who this update is from.
+
+    Updates are processed one after another in the same task, so without this
+    a handler that doesn't call is_authorized() would still see the previous
+    update's user. Strangers get NOBODY, which matches no data.
+    """
+    user = getattr(update, "effective_user", None)
+    uid = user.id if user else None
+    bind_user(uid if uid and (uid == config.USER_ID or is_member(uid)) else NOBODY)
+
+
 def register_handlers(app) -> None:
     """Registers every command, callback and message handler on the application."""
+    # 0. Who is this update from? (group -1 runs before all handlers below)
+    app.add_handler(TypeHandler(Update, bind_update_user), group=-1)
+
     # 1. Command handlers
     app.add_handler(CommandHandler("start", start_handler))
     app.add_handler(CommandHandler("help", help_handler))
@@ -408,6 +435,8 @@ def register_handlers(app) -> None:
     app.add_handler(CommandHandler("test", fitness_command_handler))
     app.add_handler(CommandHandler("partner", partner_command_handler))
     app.add_handler(CommandHandler("stop", partner_stop_handler))
+    app.add_handler(CommandHandler("crew", crew_command_handler))
+    app.add_handler(CommandHandler("duel", duel_command_handler))
 
     # 2. Callback query handlers — one explicit namespace each, plus a final
     #    fallback that only answers callbacks none of them claimed.
@@ -421,6 +450,8 @@ def register_handlers(app) -> None:
                                          pattern=FITNESS_CALLBACK_PATTERN))
     app.add_handler(CallbackQueryHandler(_timed("partner", partner_callback_handler),
                                          pattern=PARTNER_CALLBACK_PATTERN))
+    app.add_handler(CallbackQueryHandler(_timed("crew", crew_callback_handler),
+                                         pattern=CREW_CALLBACK_PATTERN))
     # Pressed by the partner, not the owner: authorization happens inside.
     app.add_handler(CallbackQueryHandler(_timed("cheer", partner_cheer_handler, owner_only=False),
                                          pattern=CHEER_CALLBACK_PATTERN))

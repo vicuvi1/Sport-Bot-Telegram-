@@ -14,6 +14,7 @@ initialized temporary SQLite file for every test, keeping the suite hermetic
 import pytest
 
 import config
+import database
 from database import init_db
 
 
@@ -39,5 +40,9 @@ def isolated_global_db(tmp_path, monkeypatch):
     # TELEGRAM_USER_ID, is_authorized() rejects every update and tests fail.
     monkeypatch.setattr(config, "USER_ID", TEST_USER_ID)
 
+    # Start every test as "nobody bound" (= the owner), whatever earlier tests did.
+    token = database._current_user.set(None)
+
     init_db(db_file)
     yield db_file
+    database._current_user.reset(token)

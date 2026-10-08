@@ -8,7 +8,7 @@ from telegram.ext import ContextTypes
 
 import config
 from database import get_setting, set_setting, create_backup
-from handlers.start import is_authorized
+from handlers.start import is_authorized, is_owner
 from handlers.workout import build_today_workout_view
 from services.partner_service import get_partner
 from views import HTML, card, esc, nice_date
@@ -74,13 +74,14 @@ def build_settings_menu() -> tuple[str, InlineKeyboardMarkup]:
         ],
         [
             InlineKeyboardButton("🏖 Pause", callback_data="menu_pause"),
-            InlineKeyboardButton("🤝 Partner", callback_data="partner_menu"),
+            InlineKeyboardButton("👥 Crew", callback_data="crew_menu"),
         ],
-        [
-            InlineKeyboardButton("🧪 Fitness test", callback_data="test_menu"),
-            InlineKeyboardButton("💾 Backup", callback_data="backup_db"),
-        ],
+        [InlineKeyboardButton("🧪 Fitness test", callback_data="test_menu")],
     ]
+    if is_owner():
+        # The partner and the whole-database backup belong to the bot owner.
+        keyboard[-1].append(InlineKeyboardButton("🤝 Partner", callback_data="partner_menu"))
+        keyboard.append([InlineKeyboardButton("💾 Backup", callback_data="backup_db")])
 
     return text, InlineKeyboardMarkup(keyboard)
 
@@ -407,6 +408,9 @@ async def settings_callback_handler(update: Update, context: ContextTypes.DEFAUL
         return
 
     if data == "backup_db":
+        if not is_owner():
+            await query.message.reply_text("🔒 Only the bot owner can use this. Your crew features are in /crew.")
+            return
         await query.message.reply_text("⏳ Generating database backup...")
         backup_file = create_backup()
         verdict = check_backup(backup_file)

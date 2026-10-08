@@ -79,6 +79,10 @@ def callback_texts() -> dict:
             "partner_remove", "partner_remove_confirm",
         ],
         "cheer": ["partner_cheer"],
+        "crew": [
+            "crew_menu", "crew_duel", "crew_feed", "crew_roastlvl", "crew_invite", "crew_manage",
+            "crew_roast:1", "crew_hype:1", "crew_remove:1", "crew_rmyes:999", "crew_leave", "crew_leaveyes",
+        ],
     }
 
 

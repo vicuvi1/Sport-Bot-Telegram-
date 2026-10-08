@@ -1,11 +1,12 @@
 from datetime import datetime, date, timedelta
 from typing import Optional, List, Dict, Any, Tuple
+import json
 import math
 from zoneinfo import ZoneInfo
 from pathlib import Path
 
 import config
-from database import get_connection, get_setting, set_setting
+from database import get_connection, get_setting, set_setting, current_user_id
 
 def get_current_date_str(tz_name: Optional[str] = None, db_path: Optional[Path] = None) -> str:
     """Returns today's date string (YYYY-MM-DD) in the user's timezone."""
@@ -48,15 +49,17 @@ def get_active_pause(today_str: Optional[str] = None, db_path: Optional[Path] = 
     today_str = today_str or get_current_date_str(db_path=db_path)
     with get_connection(db_path) as conn:
         row = conn.execute(
-            "SELECT * FROM pauses WHERE start_date <= ? AND end_date >= ? ORDER BY end_date DESC LIMIT 1;",
-            (today_str, today_str)
+            "SELECT * FROM pauses WHERE user_id = ? AND start_date <= ? AND end_date >= ? "
+            "ORDER BY end_date DESC LIMIT 1;",
+            (current_user_id(), today_str, today_str)
         ).fetchone()
         return dict(row) if row else None
 
 def get_paused_dates(db_path: Optional[Path] = None) -> set:
     """All dates (YYYY-MM-DD) covered by any pause, past or planned."""
     with get_connection(db_path) as conn:
-        rows = conn.execute("SELECT start_date, end_date FROM pauses;").fetchall()
+        rows = conn.execute("SELECT start_date, end_date FROM pauses WHERE user_id = ?;",
+                            (current_user_id(),)).fetchall()
     dates = set()
     for r in rows:
         d, end = _to_date(r["start_date"]), _to_date(r["end_date"])
@@ -71,8 +74,8 @@ def get_paused_dates(db_path: Optional[Path] = None) -> set:
 def is_date_paused(date_str: str, db_path: Optional[Path] = None) -> bool:
     with get_connection(db_path) as conn:
         row = conn.execute(
-            "SELECT 1 FROM pauses WHERE start_date <= ? AND end_date >= ? LIMIT 1;",
-            (date_str, date_str)
+            "SELECT 1 FROM pauses WHERE user_id = ? AND start_date <= ? AND end_date >= ? LIMIT 1;",
+            (current_user_id(), date_str, date_str)
         ).fetchone()
         return row is not None
 
@@ -92,13 +95,13 @@ def start_pause(days: int, today_str: Optional[str] = None, db_path: Optional[Pa
             pause_id = active["id"]
         else:
             cursor = conn.execute(
-                "INSERT INTO pauses (start_date, end_date, created_at) VALUES (?, ?, ?);",
-                (today_str, end_str, local_now_iso(db_path))
+                "INSERT INTO pauses (user_id, start_date, end_date, created_at) VALUES (?, ?, ?, ?);",
+                (current_user_id(), today_str, end_str, local_now_iso(db_path))
             )
             pause_id = cursor.lastrowid
         conn.execute(
-            "UPDATE daily_workouts SET status = 'paused' WHERE date = ? AND status = 'pending';",
-            (today_str,)
+            "UPDATE daily_workouts SET status = 'paused' WHERE user_id = ? AND date = ? AND status = 'pending';",
+            (current_user_id(), today_str)
         )
         conn.commit()
         return dict(conn.execute("SELECT * FROM pauses WHERE id = ?;", (pause_id,)).fetchone())
@@ -119,8 +122,8 @@ def resume_from_pause(today_str: Optional[str] = None, db_path: Optional[Path] =
 
         row = conn.execute(
             "SELECT id, (SELECT COUNT(*) FROM workout_items WHERE daily_workout_id = dw.id) AS n "
-            "FROM daily_workouts dw WHERE date = ? AND status = 'paused';",
-            (today_str,)
+            "FROM daily_workouts dw WHERE user_id = ? AND date = ? AND status = 'paused';",
+            (current_user_id(), today_str)
         ).fetchone()
         if row:
             if row["n"]:
@@ -156,16 +159,17 @@ def get_exercises(active_only: bool = False, db_path: Optional[Path] = None) -> 
     with get_connection(db_path) as conn:
         cursor = conn.cursor()
         if active_only:
-            cursor.execute("SELECT * FROM exercises WHERE is_active = 1 ORDER BY id ASC;")
+            cursor.execute("SELECT * FROM exercises WHERE user_id = ? AND is_active = 1 ORDER BY id ASC;",
+                           (current_user_id(),))
         else:
-            cursor.execute("SELECT * FROM exercises ORDER BY id ASC;")
+            cursor.execute("SELECT * FROM exercises WHERE user_id = ? ORDER BY id ASC;", (current_user_id(),))
         return [dict(r) for r in cursor.fetchall()]
 
 def get_exercise_by_id(exercise_id: int, db_path: Optional[Path] = None) -> Optional[Dict[str, Any]]:
     """Finds an exercise by its ID."""
     with get_connection(db_path) as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM exercises WHERE id = ?;", (exercise_id,))
+        cursor.execute("SELECT * FROM exercises WHERE id = ? AND user_id = ?;", (exercise_id, current_user_id()))
         row = cursor.fetchone()
         return dict(row) if row else None
 
@@ -186,10 +190,10 @@ def add_exercise(
         cursor = conn.cursor()
         cursor.execute(
             """
-            INSERT INTO exercises (name, target_reps, unit, is_active, days_of_week, created_at)
-            VALUES (?, ?, ?, 1, ?, ?);
+            INSERT INTO exercises (user_id, name, target_reps, unit, is_active, days_of_week, created_at)
+            VALUES (?, ?, ?, ?, 1, ?, ?);
             """,
-            (name, int(target_reps), unit, days_of_week.strip(), now_iso)
+            (current_user_id(), name, int(target_reps), unit, days_of_week.strip(), now_iso)
         )
         conn.commit()
         return cursor.lastrowid
@@ -225,11 +229,11 @@ def update_exercise(
     if not fields:
         return False
 
-    params.append(exercise_id)
+    params += [exercise_id, current_user_id()]
     with get_connection(db_path) as conn:
         cursor = conn.cursor()
         cursor.execute(
-            f"UPDATE exercises SET {', '.join(fields)} WHERE id = ?;",
+            f"UPDATE exercises SET {', '.join(fields)} WHERE id = ? AND user_id = ?;",
             params
         )
         conn.commit()
@@ -248,7 +252,7 @@ def delete_exercise(exercise_id: int, db_path: Optional[Path] = None) -> bool:
     """Deletes an exercise from the catalog."""
     with get_connection(db_path) as conn:
         cursor = conn.cursor()
-        cursor.execute("DELETE FROM exercises WHERE id = ?;", (exercise_id,))
+        cursor.execute("DELETE FROM exercises WHERE id = ? AND user_id = ?;", (exercise_id, current_user_id()))
         conn.commit()
         return cursor.rowcount > 0
 
@@ -283,8 +287,8 @@ def comeback_stage_for(cursor, workout_date: date, workout_days_setting: str) ->
     """Returns 1 or 2 if the workout on `workout_date` should be eased in, else 0."""
     row = cursor.execute(
         "SELECT date, comeback_stage FROM daily_workouts "
-        "WHERE status = 'completed' AND date < ? ORDER BY date DESC LIMIT 1;",
-        (workout_date.isoformat(),)
+        "WHERE user_id = ? AND status = 'completed' AND date < ? ORDER BY date DESC LIMIT 1;",
+        (current_user_id(), workout_date.isoformat())
     ).fetchone()
     if not row:
         return 0  # brand-new user: nothing to come back from
@@ -315,12 +319,13 @@ def get_or_create_daily_workout(
     now_iso = local_now_iso(db_path)
     workout_date = datetime.strptime(date_str, "%Y-%m-%d").date()
     weekday = workout_date.weekday()  # 0 = Monday, 6 = Sunday
+    uid = current_user_id()
 
     with get_connection(db_path) as conn:
         cursor = conn.cursor()
 
         # Check existing workout
-        cursor.execute("SELECT * FROM daily_workouts WHERE date = ?;", (date_str,))
+        cursor.execute("SELECT * FROM daily_workouts WHERE user_id = ? AND date = ?;", (uid, date_str))
         workout_row = cursor.fetchone()
 
         if workout_row:
@@ -331,7 +336,7 @@ def get_or_create_daily_workout(
             is_global_workout_day = is_day_active(weekday, workout_days_setting)
 
             # Find matching active exercises for this day
-            cursor.execute("SELECT * FROM exercises WHERE is_active = 1 ORDER BY id ASC;")
+            cursor.execute("SELECT * FROM exercises WHERE user_id = ? AND is_active = 1 ORDER BY id ASC;", (uid,))
             all_active = [dict(r) for r in cursor.fetchall()]
             eligible_exercises = [
                 ex for ex in all_active if is_day_active(weekday, ex.get("days_of_week", "0,1,2,3,4,5,6"))
@@ -339,16 +344,16 @@ def get_or_create_daily_workout(
 
             if is_date_paused(date_str, db_path=db_path):
                 cursor.execute(
-                    "INSERT INTO daily_workouts (date, status, created_at) VALUES (?, 'paused', ?);",
-                    (date_str, now_iso)
+                    "INSERT INTO daily_workouts (user_id, date, status, created_at) VALUES (?, ?, 'paused', ?);",
+                    (uid, date_str, now_iso)
                 )
                 conn.commit()
                 workout_id = cursor.lastrowid
             elif not is_global_workout_day or not eligible_exercises:
                 # Rest day
                 cursor.execute(
-                    "INSERT INTO daily_workouts (date, status, created_at) VALUES (?, 'rest', ?);",
-                    (date_str, now_iso)
+                    "INSERT INTO daily_workouts (user_id, date, status, created_at) VALUES (?, ?, 'rest', ?);",
+                    (uid, date_str, now_iso)
                 )
                 conn.commit()
                 workout_id = cursor.lastrowid
@@ -357,8 +362,9 @@ def get_or_create_daily_workout(
                 stage = comeback_stage_for(cursor, workout_date, workout_days_setting)
                 factor = COMEBACK_FACTORS.get(stage, 1.0)
                 cursor.execute(
-                    "INSERT INTO daily_workouts (date, status, created_at, comeback_stage) VALUES (?, 'pending', ?, ?);",
-                    (date_str, now_iso, stage)
+                    "INSERT INTO daily_workouts (user_id, date, status, created_at, comeback_stage) "
+                    "VALUES (?, ?, 'pending', ?, ?);",
+                    (uid, date_str, now_iso, stage)
                 )
                 workout_id = cursor.lastrowid
 
@@ -386,6 +392,13 @@ def get_or_create_daily_workout(
 # EXERCISE COMPLETION & UPDATES
 # ============================================================================
 
+def _record_workout_done(cursor, workout_id: int) -> None:
+    """Crew live feed: tell the others this day was just finished (see crew_service)."""
+    cursor.execute(
+        "INSERT INTO crew_events (user_id, kind, data, created_at) VALUES (?, 'workout_done', ?, ?);",
+        (current_user_id(), json.dumps({"workout_id": workout_id}), datetime.now(ZoneInfo("UTC")).isoformat())
+    )
+
 def _refresh_workout_status(cursor, workout_id: int, now_iso: str) -> None:
     """Sets the day's status from its items: completed, skipped or pending."""
     cursor.execute("SELECT status FROM workout_items WHERE daily_workout_id = ?;", (workout_id,))
@@ -400,6 +413,8 @@ def _refresh_workout_status(cursor, workout_id: int, now_iso: str) -> None:
             "WHERE id = ? AND status != 'completed';",
             (now_iso, workout_id)
         )
+        if cursor.rowcount:
+            _record_workout_done(cursor, workout_id)
     elif all_done and not has_completed:
         cursor.execute(
             "UPDATE daily_workouts SET status = 'skipped', completed_at = ? WHERE id = ?;",
@@ -428,7 +443,12 @@ def update_workout_item(
 
     with get_connection(db_path) as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM workout_items WHERE id = ?;", (item_id,))
+        # Only the current user's items (ids arrive in button data).
+        cursor.execute(
+            "SELECT wi.* FROM workout_items wi JOIN daily_workouts dw ON dw.id = wi.daily_workout_id "
+            "WHERE wi.id = ? AND dw.user_id = ?;",
+            (item_id, current_user_id())
+        )
         item_row = cursor.fetchone()
         if not item_row:
             return None, None
@@ -495,7 +515,7 @@ def check_and_apply_progression(exercise_id: int, db_path: Optional[Path] = None
         cursor = conn.cursor()
 
         # Get the exercise
-        cursor.execute("SELECT * FROM exercises WHERE id = ?;", (exercise_id,))
+        cursor.execute("SELECT * FROM exercises WHERE id = ? AND user_id = ?;", (exercise_id, current_user_id()))
         ex_row = cursor.fetchone()
         if not ex_row:
             return None
@@ -569,7 +589,8 @@ def calculate_streaks(
 
     with get_connection(db_path) as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT date, status FROM daily_workouts ORDER BY date ASC;")
+        cursor.execute("SELECT date, status FROM daily_workouts WHERE user_id = ? ORDER BY date ASC;",
+                       (current_user_id(),))
         rows = cursor.fetchall()
         workouts_by_date = {r["date"]: r["status"] for r in rows}
 
@@ -620,10 +641,11 @@ def get_history(limit: int = 10, db_path: Optional[Path] = None) -> List[Dict[st
             """
             SELECT dw.id, dw.date, dw.status, dw.created_at, dw.completed_at
             FROM daily_workouts dw
+            WHERE dw.user_id = ?
             ORDER BY dw.date DESC
             LIMIT ?;
             """,
-            (limit,)
+            (current_user_id(), limit)
         )
         workouts = [dict(r) for r in cursor.fetchall()]
 
@@ -670,6 +692,8 @@ def complete_all_exercises_for_workout(
 
     with get_connection(db_path) as conn:
         cursor = conn.cursor()
+        _check_workout_owner(cursor, workout_id)
+        before = cursor.execute("SELECT status FROM daily_workouts WHERE id = ?;", (workout_id,)).fetchone()
         cursor.execute("SELECT * FROM workout_items WHERE daily_workout_id = ?;", (workout_id,))
         items = [dict(r) for r in cursor.fetchall()]
 
@@ -687,6 +711,8 @@ def complete_all_exercises_for_workout(
             "UPDATE daily_workouts SET status = 'completed', completed_at = ? WHERE id = ?;",
             (now_iso, workout_id)
         )
+        if before and before["status"] != "completed":
+            _record_workout_done(cursor, workout_id)
         conn.commit()
 
         # Check progression for all exercises
@@ -709,8 +735,15 @@ def complete_all_exercises_for_workout(
 
 QUICK_FACTOR = 0.5
 
+def _check_workout_owner(cursor, workout_id: int) -> None:
+    """Workout ids arrive via buttons; refuse to touch another user's day."""
+    row = cursor.execute("SELECT user_id FROM daily_workouts WHERE id = ?;", (workout_id,)).fetchone()
+    if row and row["user_id"] != current_user_id():
+        raise PermissionError(f"workout {workout_id} belongs to another user")
+
 def _load_workout(cursor, workout_id: int) -> Optional[Dict[str, Any]]:
-    row = cursor.execute("SELECT * FROM daily_workouts WHERE id = ?;", (workout_id,)).fetchone()
+    row = cursor.execute("SELECT * FROM daily_workouts WHERE id = ? AND user_id = ?;",
+                         (workout_id, current_user_id())).fetchone()
     if not row:
         return None
     workout = dict(row)
@@ -781,7 +814,8 @@ EASY_ANSWERS_TO_RAISE = 2
 def _adjust_targets(cursor, exercise_ids: List[int], raise_targets: bool) -> List[Dict[str, Any]]:
     changes = []
     for ex_id in exercise_ids:
-        ex = cursor.execute("SELECT id, name, unit, target_reps FROM exercises WHERE id = ?;", (ex_id,)).fetchone()
+        ex = cursor.execute("SELECT id, name, unit, target_reps FROM exercises WHERE id = ? AND user_id = ?;",
+                            (ex_id, current_user_id())).fetchone()
         if not ex:
             continue
         old = ex["target_reps"]
@@ -809,7 +843,8 @@ def record_feedback(workout_id: int, feedback: str, db_path: Optional[Path] = No
             return result
 
         cursor.execute("UPDATE daily_workouts SET feedback = ? WHERE id = ?;", (feedback, workout_id))
-        row = cursor.execute("SELECT value FROM settings WHERE key = 'easy_feedback_streak';").fetchone()
+        row = cursor.execute("SELECT value FROM user_settings WHERE user_id = ? AND key = 'easy_feedback_streak';",
+                             (current_user_id(),)).fetchone()
         try:
             easy_streak = int(row["value"]) if row else 0
         except ValueError:
@@ -831,9 +866,9 @@ def record_feedback(workout_id: int, feedback: str, db_path: Optional[Path] = No
             easy_streak = 0
 
         cursor.execute(
-            "INSERT INTO settings (key, value) VALUES ('easy_feedback_streak', ?) "
-            "ON CONFLICT(key) DO UPDATE SET value = excluded.value;",
-            (str(easy_streak),)
+            "INSERT INTO user_settings (user_id, key, value) VALUES (?, 'easy_feedback_streak', ?) "
+            "ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value;",
+            (current_user_id(), str(easy_streak))
         )
         conn.commit()
 
@@ -863,7 +898,8 @@ def generate_workout_heatmap(
 
     with get_connection(db_path) as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT id, date, status FROM daily_workouts WHERE date >= ? AND date <= ?;", (start_date.isoformat(), end_date.isoformat()))
+        cursor.execute("SELECT id, date, status FROM daily_workouts WHERE user_id = ? AND date >= ? AND date <= ?;",
+                       (current_user_id(), start_date.isoformat(), end_date.isoformat()))
         rows = cursor.fetchall()
         workouts_map = {r["date"]: r["status"] for r in rows}
 
@@ -923,31 +959,37 @@ def get_user_badges(
 
     current_streak, best_streak = calculate_streaks(today_str=today_str, db_path=db_path)
 
+    uid = current_user_id()
     with get_connection(db_path) as conn:
         cursor = conn.cursor()
 
         # Total completed reps per exercise
         cursor.execute(
             """
-            SELECT exercise_name, SUM(completed_reps) as total_reps
-            FROM workout_items
-            GROUP BY exercise_name;
-            """
+            SELECT wi.exercise_name, SUM(wi.completed_reps) as total_reps
+            FROM workout_items wi JOIN daily_workouts dw ON dw.id = wi.daily_workout_id
+            WHERE dw.user_id = ?
+            GROUP BY wi.exercise_name;
+            """,
+            (uid,)
         )
         ex_reps = {r["exercise_name"]: (r["total_reps"] or 0) for r in cursor.fetchall()}
         max_single_ex_reps = max(ex_reps.values()) if ex_reps else 0
         total_lifetime_reps = sum(ex_reps.values())
 
         # Check total workouts completed
-        cursor.execute("SELECT COUNT(*) as cnt FROM daily_workouts WHERE status = 'completed';")
+        cursor.execute("SELECT COUNT(*) as cnt FROM daily_workouts WHERE user_id = ? AND status = 'completed';",
+                       (uid,))
         total_completed_workouts = cursor.fetchone()["cnt"]
 
         # Check Early Bird: completed before 09:00 AM
         cursor.execute(
             """
-            SELECT COUNT(*) as cnt FROM daily_workouts 
-            WHERE status = 'completed' AND completed_at IS NOT NULL AND time(completed_at) < '09:00:00';
-            """
+            SELECT COUNT(*) as cnt FROM daily_workouts
+            WHERE user_id = ? AND status = 'completed' AND completed_at IS NOT NULL
+              AND time(completed_at) < '09:00:00';
+            """,
+            (uid,)
         )
         early_bird_count = cursor.fetchone()["cnt"]
 
@@ -956,9 +998,10 @@ def get_user_badges(
             """
             SELECT strftime('%w', date) as dow, COUNT(*) as cnt
             FROM daily_workouts
-            WHERE status = 'completed' AND strftime('%w', date) IN ('0', '6')
+            WHERE user_id = ? AND status = 'completed' AND strftime('%w', date) IN ('0', '6')
             GROUP BY dow;
-            """
+            """,
+            (uid,)
         )
         weekend_rows = cursor.fetchall()
         has_weekend_warrior = len(weekend_rows) >= 2
@@ -1027,7 +1070,7 @@ def export_workouts_csv(db_path: Optional[Path] = None, export_dir: Optional[Pat
 
     out_dir = export_dir or config.DATA_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
-    csv_file = out_dir / "workout_history_export.csv"
+    csv_file = out_dir / f"workout_history_{current_user_id()}.csv"
 
     with get_connection(db_path) as conn:
         cursor = conn.cursor()
@@ -1044,8 +1087,10 @@ def export_workouts_csv(db_path: Optional[Path] = None, export_dir: Optional[Pat
                 wi.status as exercise_status
             FROM daily_workouts dw
             LEFT JOIN workout_items wi ON dw.id = wi.daily_workout_id
+            WHERE dw.user_id = ?
             ORDER BY dw.date DESC, wi.id ASC;
-            """
+            """,
+            (current_user_id(),)
         )
         rows = cursor.fetchall()
 

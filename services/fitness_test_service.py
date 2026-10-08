@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from database import get_connection, get_setting
+from database import get_connection, get_setting, current_user_id
 from services.workout_service import get_current_date_str, local_now_iso
 
 FITNESS_TESTS = [
@@ -73,17 +73,18 @@ def save_result(month: str, key: str, value: Optional[int], db_path: Optional[Pa
     with get_connection(db_path) as conn:
         conn.execute(
             """
-            INSERT INTO fitness_results (month, test_key, value, recorded_at) VALUES (?, ?, ?, ?)
-            ON CONFLICT(month, test_key) DO UPDATE SET value = excluded.value, recorded_at = excluded.recorded_at;
+            INSERT INTO fitness_results (user_id, month, test_key, value, recorded_at) VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(user_id, month, test_key) DO UPDATE SET value = excluded.value, recorded_at = excluded.recorded_at;
             """,
-            (month, key, value, local_now_iso(db_path))
+            (current_user_id(), month, key, value, local_now_iso(db_path))
         )
         conn.commit()
 
 
 def get_month_results(month: str, db_path: Optional[Path] = None) -> Dict[str, Optional[int]]:
     with get_connection(db_path) as conn:
-        rows = conn.execute("SELECT test_key, value FROM fitness_results WHERE month = ?;", (month,)).fetchall()
+        rows = conn.execute("SELECT test_key, value FROM fitness_results WHERE user_id = ? AND month = ?;",
+                            (current_user_id(), month)).fetchall()
     return {r["test_key"]: r["value"] for r in rows}
 
 
@@ -105,8 +106,9 @@ def get_history(key: str, db_path: Optional[Path] = None) -> List[Tuple[str, int
     """[(month, value), ...] oldest first, skipped months left out."""
     with get_connection(db_path) as conn:
         rows = conn.execute(
-            "SELECT month, value FROM fitness_results WHERE test_key = ? AND value IS NOT NULL ORDER BY month;",
-            (key,)
+            "SELECT month, value FROM fitness_results WHERE user_id = ? AND test_key = ? AND value IS NOT NULL "
+            "ORDER BY month;",
+            (current_user_id(), key)
         ).fetchall()
     return [(r["month"], r["value"]) for r in rows]
 

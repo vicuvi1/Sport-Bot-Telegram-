@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-from database import get_connection, get_setting
+from database import current_user_id, get_connection, get_setting
 from services.workout_service import (
     COMEBACK_FACTORS,
     FEEDBACK_LABELS,
@@ -314,8 +314,8 @@ def week_strip(today_str: str) -> str:
     paused = get_paused_dates()
     with get_connection() as conn:
         rows = conn.execute(
-            "SELECT date, status FROM daily_workouts WHERE date >= ? AND date <= ?;",
-            (monday.isoformat(), (monday + timedelta(days=6)).isoformat())
+            "SELECT date, status FROM daily_workouts WHERE user_id = ? AND date >= ? AND date <= ?;",
+            (current_user_id(), monday.isoformat(), (monday + timedelta(days=6)).isoformat())
         ).fetchall()
     status = {r["date"]: r["status"] for r in rows}
 

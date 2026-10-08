@@ -2,7 +2,7 @@ from datetime import datetime, date, timedelta
 from typing import Optional, Dict, Any, List
 from pathlib import Path
 
-from database import get_connection, get_setting
+from database import get_connection, get_setting, current_user_id
 from services.workout_service import calculate_streaks, get_current_date_str
 
 def get_date_range(period: str, today_str: Optional[str] = None) -> tuple[Optional[str], str]:
@@ -48,12 +48,13 @@ def get_stats_for_period(
         # Count completed and scheduled workouts in the date range
         date_filter = ""
         params: List[Any] = []
+        uid = current_user_id()
         if start_date:
-            date_filter = "WHERE date >= ? AND date <= ?"
-            params = [start_date, end_date]
+            date_filter = "WHERE user_id = ? AND date >= ? AND date <= ?"
+            params = [uid, start_date, end_date]
         else:
-            date_filter = "WHERE date <= ?"
-            params = [end_date]
+            date_filter = "WHERE user_id = ? AND date <= ?"
+            params = [uid, end_date]
 
         cursor.execute(
             f"""
@@ -74,11 +75,11 @@ def get_stats_for_period(
         wi_date_filter = ""
         wi_params: List[Any] = []
         if start_date:
-            wi_date_filter = "WHERE dw.date >= ? AND dw.date <= ?"
-            wi_params = [start_date, end_date]
+            wi_date_filter = "WHERE dw.user_id = ? AND dw.date >= ? AND dw.date <= ?"
+            wi_params = [uid, start_date, end_date]
         else:
-            wi_date_filter = "WHERE dw.date <= ?"
-            wi_params = [end_date]
+            wi_date_filter = "WHERE dw.user_id = ? AND dw.date <= ?"
+            wi_params = [uid, end_date]
 
         cursor.execute(
             f"""

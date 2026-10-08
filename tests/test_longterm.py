@@ -170,8 +170,8 @@ def test_morning_reminder_skipped_while_paused():
 def test_morning_reminder_welcomes_back_after_pause():
     yesterday = shift(get_current_date_str(), -1)
     with get_connection() as conn:
-        conn.execute("INSERT INTO pauses (start_date, end_date, created_at) VALUES (?, ?, 'x');",
-                     (yesterday, yesterday))
+        conn.execute("INSERT INTO pauses (user_id, start_date, end_date, created_at) VALUES (?, ?, ?, 'x');",
+                     (config.USER_ID, yesterday, yesterday))
         conn.commit()
     bot = AsyncMock()
     asyncio.run(sched.send_daily_workout_notification(bot))
@@ -386,12 +386,13 @@ def test_heartbeat_job_only_scheduled_with_url(monkeypatch):
 
     monkeypatch.setattr(config, "HEALTHCHECK_URL", "")
     scheduler = AsyncIOScheduler()
+    sched.schedule_global_jobs(scheduler, AsyncMock())
     sched.reschedule_daily_job(scheduler, AsyncMock())
     assert scheduler.get_job("heartbeat") is None
-    assert scheduler.get_job("weekly_summary") is not None
+    assert scheduler.get_job(f"weekly_summary:{config.USER_ID}") is not None
 
     monkeypatch.setattr(config, "HEALTHCHECK_URL", "https://hc-ping.com/abc")
-    sched.reschedule_daily_job(scheduler, AsyncMock())
+    sched.schedule_global_jobs(scheduler, AsyncMock())
     assert scheduler.get_job("heartbeat") is not None
 
 

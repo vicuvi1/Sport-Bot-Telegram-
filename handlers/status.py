@@ -8,7 +8,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 import config
-from database import get_setting, get_latest_backup, get_scheduled_alerts
+from database import current_user_id, get_setting, get_latest_backup, get_scheduled_alerts
 from handlers.start import is_authorized
 from monitoring import health
 from services.workout_service import get_active_pause
@@ -16,12 +16,15 @@ from services.workout_service import get_active_pause
 logger = logging.getLogger(__name__)
 
 # Human-readable names for the recurring scheduler jobs.
-JOB_LABELS = {
+# Per-user jobs carry the user id in their job id ("name:<user_id>").
+USER_JOB_LABELS = {
     "daily_morning_workout": "Morning reminder",
     "daily_evening_nudge": "Evening nudge",
     "weekly_summary": "Weekly summary",
-    "weekly_sunday_backup": "Weekly backup",
     "monthly_test_reminder": "Fitness test reminder",
+}
+GLOBAL_JOB_LABELS = {
+    "weekly_sunday_backup": "Weekly backup",
 }
 
 
@@ -108,7 +111,10 @@ def build_status_text(bot_data: Dict[str, Any], now: Optional[datetime] = None) 
     if scheduler is None:
         lines.append("⚠️ Scheduler is not running")
     else:
-        for job_id, label in JOB_LABELS.items():
+        job_ids = {f"{name}:{current_user_id()}": label for name, label in USER_JOB_LABELS.items()}
+        if current_user_id() == config.USER_ID:
+            job_ids.update(GLOBAL_JOB_LABELS)
+        for job_id, label in job_ids.items():
             job = scheduler.get_job(job_id)
             # Pending (not yet started) jobs have no next_run_time attribute.
             next_run = getattr(job, "next_run_time", None) if job else None

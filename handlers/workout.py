@@ -6,6 +6,7 @@ from telegram.ext import ContextTypes
 
 from handlers.start import is_authorized
 from scheduler import schedule_alert, ALERT_TIMER, ALERT_SNOOZE
+from services.crew_service import deliver_events
 from services.workout_service import (
     get_or_create_daily_workout,
     update_workout_item,
@@ -60,7 +61,14 @@ async def workout_callback_handler(update: Update, context: ContextTypes.DEFAULT
     """Handles interactive button callbacks for exercises."""
     if not is_authorized(update):
         return
+    try:
+        await _handle_workout_callback(update, context)
+    finally:
+        # Finishing a workout records a crew event; tell the others right away.
+        await deliver_events(context.bot)
 
+
+async def _handle_workout_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     data = query.data
 
@@ -188,6 +196,13 @@ async def custom_amount_message_handler(update: Update, context: ContextTypes.DE
     """Handles text message input when the user is prompted to enter an exact completion amount."""
     if not is_authorized(update):
         return False
+    try:
+        return await _handle_custom_amount(update, context)
+    finally:
+        await deliver_events(context.bot)
+
+
+async def _handle_custom_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
 
     item_id = context.user_data.get("awaiting_reps_item_id")
     if not item_id:

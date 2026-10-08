@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from database import get_connection, get_setting, set_setting
+from database import get_connection, get_setting, set_setting, current_user_id
 from services.workout_service import (
     _to_date,
     get_current_date_str,
@@ -174,10 +174,11 @@ def count_missed_in_a_row(today_str: Optional[str] = None, db_path: Optional[Pat
     paused = get_paused_dates(db_path=db_path)
     with get_connection(db_path) as conn:
         rows = conn.execute(
-            "SELECT date, status FROM daily_workouts WHERE date < ? AND date >= ?;",
-            (today_str, (today - timedelta(days=30)).isoformat())
+            "SELECT date, status FROM daily_workouts WHERE user_id = ? AND date < ? AND date >= ?;",
+            (current_user_id(), today_str, (today - timedelta(days=30)).isoformat())
         ).fetchall()
-        first = conn.execute("SELECT MIN(date) AS d FROM daily_workouts;").fetchone()["d"]
+        first = conn.execute("SELECT MIN(date) AS d FROM daily_workouts WHERE user_id = ?;",
+                             (current_user_id(),)).fetchone()["d"]
     status_by_date = {r["date"]: r["status"] for r in rows}
 
     missed = 0

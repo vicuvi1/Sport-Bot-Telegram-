@@ -197,6 +197,7 @@ def test_status_text_reports_health():
 
     async def run():
         scheduler = AsyncIOScheduler()
+        sched.schedule_global_jobs(scheduler, AsyncMock())
         sched.reschedule_daily_job(scheduler, AsyncMock())
         scheduler.start()
         try:

@@ -1,3 +1,4 @@
+import config
 import pytest
 from pathlib import Path
 from datetime import datetime
@@ -15,8 +16,8 @@ def insert_workout(db_file: Path, date_str: str, status: str):
     now_iso = datetime.now().isoformat()
     with get_connection(db_file) as conn:
         conn.execute(
-            "INSERT INTO daily_workouts (date, status, created_at) VALUES (?, ?, ?);",
-            (date_str, status, now_iso)
+            "INSERT INTO daily_workouts (user_id, date, status, created_at) VALUES (?, ?, ?, ?);",
+            (config.USER_ID, date_str, status, now_iso)
         )
         conn.commit()
 

@@ -6,7 +6,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 import config
-from handlers.start import is_authorized
+from handlers.start import is_authorized, is_owner
 from services import partner_service as ps
 
 logger = logging.getLogger(__name__)
@@ -57,6 +57,9 @@ async def partner_command_handler(update: Update, context: ContextTypes.DEFAULT_
     """Handles /partner (owner): the accountability partner menu."""
     if not is_authorized(update):
         return
+    if not is_owner():
+        await update.message.reply_text("🔒 Only the bot owner can use this. Your crew features are in /crew.")
+        return
     ps.remember_owner_name(update.effective_user.first_name)
     text, markup = build_partner_menu()
     await update.message.reply_text(text, reply_markup=markup, parse_mode="Markdown")
@@ -65,6 +68,9 @@ async def partner_command_handler(update: Update, context: ContextTypes.DEFAULT_
 async def partner_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Owner-side partner_* buttons (authorization is checked by the caller's wrapper)."""
     query = update.callback_query
+    if not is_owner():
+        await query.answer("Only the bot owner can manage the partner.", show_alert=True)
+        return
     await query.answer()
     data = query.data
 
