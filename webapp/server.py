@@ -8,6 +8,7 @@ API (all require "Authorization: tma <initData>", see webapp/auth.py):
   GET  /api/state   everything the screens show
   POST /api/action  {"type": ..., ...}; returns {"ok", "message", "state"}
   GET  /api/pulse   small snapshot polled every few seconds (live progress, chat)
+  GET  /api/admin   owner only: any member's day (?user=&date=)
   POST /api/photo, /api/proof   raw image/video body; GET /api/photo|proof/<id>
 """
 
@@ -21,6 +22,7 @@ from aiohttp import web
 import config
 from database import as_user, current_user_id, get_connection, get_setting, is_member, set_setting
 from services import activity_service, body_service
+from services import admin_service as admin
 from services import social_service as social
 from services import fitness_test_service as fts
 from services import progression_service as prog
@@ -303,7 +305,33 @@ async def _act(request: web.Request, data: Dict[str, Any]) -> Optional[str]:
         return "Bet's on! 🎲" if accept else "Backed out. No points lost."
     if kind == "proof_vote":
         return social.vote_proof(_int(data, "id"), str(data.get("vote")))
+    if kind in ("admin_item", "admin_day", "admin_exercise"):
+        return await _admin_act(bot, kind, data)
     raise web.HTTPBadRequest(text="unknown action")
+
+
+async def _admin_act(bot, kind: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    """Owner-only corrections to any member's workouts (see services/admin_service.py)."""
+    me = current_user_id()
+    if not admin.is_admin(me):
+        raise web.HTTPForbidden(text="admin only")
+    user = _int(data, "user")
+    reason = data.get("reason") if isinstance(data.get("reason"), str) else None
+    def num(key):
+        return None if data.get(key) in (None, "") else _int(data, key)
+    try:
+        if kind == "admin_item":
+            message = await admin.set_item(bot, me, user, _int(data, "item_id"), reps=num("reps"), target=num("target"),
+                                           mark=data.get("mark"), reason=reason)
+        elif kind == "admin_day":
+            message = await admin.set_day(bot, me, user, str(data.get("date")), str(data.get("op")), reason)
+        else:
+            message = await admin.set_exercise(bot, me, user, _int(data, "exercise_id"), target=num("target"),
+                                               toggle=bool(data.get("toggle")), reason=reason)
+        view_date = str(data.get("date")) if data.get("date") else None
+        return {"message": message, "admin": admin.admin_view(user, view_date)}
+    except admin.AdminError as e:
+        return {"message": str(e)}
 
 
 def _settings(request: web.Request, data: Dict[str, Any]) -> Optional[str]:
@@ -405,6 +433,17 @@ async def handle_photo_upload(request: web.Request) -> web.Response:
     return web.json_response({**result, "state": build_state()}, status=200 if result["ok"] else 400)
 
 
+async def handle_admin(request: web.Request) -> web.Response:
+    if not admin.is_admin(current_user_id()):
+        return web.json_response({"ok": False, "message": "Admin only."}, status=403)
+    try:
+        user = int(request.query.get("user") or current_user_id())
+        return web.json_response(admin.admin_view(user, request.query.get("date") or None))
+    except (ValueError, admin.AdminError) as e:
+        return web.json_response({"ok": False, "message": str(e) if isinstance(e, admin.AdminError) else "Bad request."},
+                                 status=400)
+
+
 async def handle_pulse(request: web.Request) -> web.Response:
     return web.json_response(social.pulse())
 
@@ -497,6 +536,7 @@ def create_webapp(bot=None, bot_data: Optional[dict] = None, bot_token: Optional
     app.router.add_get("/api/photo/{photo_id}", handle_photo)
     app.router.add_get("/api/day", handle_day)
     app.router.add_get("/api/pulse", handle_pulse)
+    app.router.add_get("/api/admin", handle_admin)
     app.router.add_post("/api/proof", handle_proof_upload)
     app.router.add_get("/api/proof/{proof_id}", handle_proof)
     app.router.add_static("/static/", STATIC_DIR, append_version=False)

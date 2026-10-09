@@ -288,4 +288,15 @@ body.chat-open #app { padding-bottom: calc(220px + env(safe-area-inset-bottom));
 .share-img { width: 100%; border-radius: 16px; }
 .toast .toast-btn { margin-left: 10px; background: var(--bg); color: var(--me); border-radius: 8px; padding: 4px 10px; font-weight: 700; }
 
+/* ---------------------------------------------------------------- admin */
+.admin-day { flex-shrink: 0; width: 46px; height: 56px; border-radius: 12px; background: var(--surface); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; border: 2px solid transparent; color: var(--muted); }
+.admin-day b { color: var(--text); font-size: 16px; }
+.admin-day.done { background: rgba(200,241,53,.18); }
+.admin-day.done b { color: var(--me); }
+.admin-day.missed { background: rgba(255,77,94,.14); }
+.admin-day.today { border-color: var(--line); }
+.admin-day.on { border-color: var(--me); }
+.admin-item { border-top: 1px solid var(--surface-2); padding-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.admin-item.skipped { opacity: .6; }
+
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }

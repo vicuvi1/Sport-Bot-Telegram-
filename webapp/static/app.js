@@ -249,7 +249,8 @@
       '<div class="row small" style="gap:6px 8px;margin-top:4px;flex-wrap:wrap"><span class="badge" style="background:var(--me)">RANK ' + h(r.letter) + '</span>' +
       '<span class="muted">' + r.xp + ' XP' + (r.next_at ? ' · ' + (r.next_at - r.xp) + ' to ' + h(r.next_letter) : ' · max rank') + '</span>' +
       (mine && mine.title ? '<span class="badge" style="background:#C8A2FF">' + h(mine.title) + '</span>' : '') + '</div></div>' +
-      '<button class="btn icon" data-act="open-screen" data-screen="settings" aria-label="Settings">' + icon('gear', 22) + '</button></header>');
+      '<div class="row" style="gap:8px">' + (me().is_owner ? '<button class="btn icon" data-act="open-screen" data-screen="admin" aria-label="Admin">🛠</button>' : '') +
+      '<button class="btn icon" data-act="open-screen" data-screen="settings" aria-label="Settings">' + icon('gear', 22) + '</button></div></header>');
 
     others().forEach(function (o) {
       if (livePulse(o.id).live) {
@@ -760,6 +761,8 @@
       '<div class="row between"><span>Sounds</span>' + toggle(FX.soundOn(), 'toggle-sound', 'Sounds') + '</div>' +
       '<button class="btn outline" data-act="open-screen" data-screen="exercises">Edit exercises</button>' +
       '<button class="btn outline" data-act="open-screen" data-screen="gear">Customize your fighter</button></section>');
+    if (me().is_owner) parts.push('<button class="card tap row" data-act="open-screen" data-screen="admin"><span style="font-size:26px">🛠</span>' +
+      '<div class="grow"><b>Admin</b><div class="small muted">See and fix anyone\'s workouts on any day</div></div><span class="muted">›</span></button>');
     parts.push('<p class="small muted" style="text-align:center">Timezone: ' + h(s.timezone) + ' (change it in the bot\'s /settings)</p>');
     return parts.join('');
   }
@@ -954,6 +957,79 @@
     return parts.join('');
   }
 
+  // Admin (owner only): see and fix anyone's workouts on any day.
+  var adminData = null, adminReason = '';
+  var STATUS_LABEL = { completed: 'Done ✓', pending: 'Not finished', skipped: 'Skipped', paused: 'Paused', rest: 'Rest day' };
+
+  function adminScreen() {
+    var a = adminData;
+    var parts = [backHeader('🛠 Admin')];
+    if (!a) return parts.concat('<div class="boot" style="padding:60px 0">Loading…</div>').join('');
+    parts.push('<p class="small muted">Fix anyone\'s workouts on any day. Every change shows in the fight log, and they get a message.</p>');
+    parts.push('<div class="quick no-swipe">' + a.members.map(function (m) {
+      return '<button class="chip-btn' + (m.id === a.user ? ' on' : '') + '" data-act="admin-user" data-id="' + m.id + '">' + h(m.id === me().id ? m.name + ' (you)' : m.name) + '</button>';
+    }).join('') + '</div>');
+    parts.push('<div class="quick no-swipe admin-days">' + a.days.slice().reverse().map(function (d) {
+      var dt = new Date(d.date + 'T12:00:00');
+      var code = d.status === 'completed' ? 'done' : d.status === 'pending' ? (d.date === a.today ? 'today' : 'missed') : d.status ? d.status : 'none';
+      return '<button class="admin-day ' + code + (d.date === a.date ? ' on' : '') + '" data-act="admin-date" data-date="' + d.date + '">' +
+        '<span class="tiny">' + h(dt.toLocaleDateString(undefined, { weekday: 'short' })) + '</span><b>' + dt.getDate() + '</b></button>';
+    }).join('') + '</div>');
+    parts.push('<div class="row"><input class="input grow" type="date" data-input="admin-date" max="' + h(a.today) + '" value="' + h(a.date) + '" aria-label="Pick a day">' +
+      '</div><input class="input" data-input="admin-reason" maxlength="80" placeholder="Reason (optional, shown to the crew)" value="' + h(adminReason) + '" aria-label="Reason">');
+
+    var d = a.day;
+    var head = '<div class="row between"><b>' + h(a.name) + ' · ' + h(niceDate(a.date)) + '</b>' +
+      (d.exists ? '<span class="badge" style="background:' + (d.status === 'completed' ? 'var(--me)' : '#A3A8B3') + '">' + h(STATUS_LABEL[d.status] || d.status) + '</span>' : '') + '</div>';
+    if (!d.exists) {
+      parts.push('<section class="card">' + head + '<span class="small muted">Nothing was logged that day.</span>' +
+        '<button class="btn done" data-act="admin-day" data-op="create">Open this day to fix it</button></section>');
+    } else if (!d.items.length) {
+      parts.push('<section class="card">' + head + '<span class="small muted">No exercises that day.</span></section>');
+    } else {
+      parts.push('<section class="card">' + head + d.items.map(function (it) {
+        var skipped = it.status === 'skipped';
+        return '<form class="admin-item' + (skipped ? ' skipped' : '') + '" data-form="admin-item" data-id="' + it.id + '">' +
+          '<div class="row between"><b>' + h(it.name) + '</b><span class="small ' + (it.status === 'completed' ? 'me-c' : 'muted') + '">' + h(STATUS_LABEL[it.status] || it.status) + '</span></div>' +
+          '<div class="row" style="gap:6px"><input class="input" type="number" inputmode="numeric" min="0" max="5000" name="reps" value="' + it.done + '" aria-label="' + h(it.name) + ' done" style="width:80px">' +
+          '<span class="muted">/</span><input class="input" type="number" inputmode="numeric" min="1" max="5000" name="target" value="' + it.target + '" aria-label="' + h(it.name) + ' target" style="width:80px">' +
+          '<span class="small muted grow">' + h(it.unit) + '</span><button class="btn done" type="submit">Save</button></div>' +
+          '<div class="grid3"><button class="btn" type="button" data-act="admin-mark" data-id="' + it.id + '" data-mark="done">Done</button>' +
+          '<button class="btn" type="button" data-act="admin-mark" data-id="' + it.id + '" data-mark="reset">Zero</button>' +
+          '<button class="btn" type="button" data-act="admin-mark" data-id="' + it.id + '" data-mark="' + (skipped ? 'unskip' : 'skip') + '">' + (skipped ? 'Unskip' : 'Skip') + '</button></div></form>';
+      }).join('') +
+        '<div class="grid2"><button class="btn done" data-act="admin-day" data-op="complete">Complete all</button>' +
+        '<button class="btn outline" data-act="admin-day" data-op="reset">Reset day</button></div></section>');
+    }
+
+    parts.push('<section class="card"><b>' + h(a.name) + '\'s plan</b><span class="small muted">Targets for upcoming days.</span>' +
+      a.exercises.map(function (e) {
+        return '<div class="row between' + (e.active ? '' : ' skipped') + '"><span class="grow">' + h(e.name) + '</span>' +
+          '<button class="btn" style="height:36px" data-act="admin-ex" data-id="' + e.id + '" data-target="' + Math.max(1, e.target - 5) + '" aria-label="Lower target">−5</button>' +
+          '<b style="min-width:62px;text-align:center">' + e.target + ' ' + h(e.unit) + '</b>' +
+          '<button class="btn" style="height:36px" data-act="admin-ex" data-id="' + e.id + '" data-target="' + (e.target + 5) + '" aria-label="Raise target">+5</button>' +
+          toggle(e.active, 'admin-ex-toggle', 'Active: ' + e.name, ' data-id="' + e.id + '"') + '</div>';
+      }).join('') + '</section>');
+
+    parts.push('<section class="card"><b>Admin history</b>' + (a.log.length ? a.log.map(function (l) {
+      return '<div class="small"><b>' + h(l.user_id === me().id ? 'You' : 'Admin') + '</b> ' + h(l.text) + ' <span class="muted">· ' + h(ago(l.created_at)) + '</span></div>';
+    }).join('') : '<span class="small muted">No corrections yet.</span>') + '</section>');
+    return parts.join('');
+  }
+
+  function loadAdmin(user, date) {
+    var q = '?user=' + encodeURIComponent(user || (adminData ? adminData.user : me().id)) + (date ? '&date=' + encodeURIComponent(date) : '');
+    if (DEMO) { toast('Admin works with the real bot or the dev server.'); return; }
+    api('/api/admin' + q).then(function (data) { adminData = data; if (screen === 'admin') render(); }).catch(function (e) { toast(e.message); });
+  }
+
+  function adminAct(body) {
+    body.user = adminData.user;
+    body.date = adminData.date;
+    if (adminReason) body.reason = adminReason;
+    act(body, { after: function (res) { if (res.admin) { adminData = res.admin; render(); } } });
+  }
+
   // ---------------------------------------------------------------- overlays
 
   function wakeOverlay() {
@@ -1072,7 +1148,7 @@
     if (tab === 'chat' && !screen) markChatSeen();
     var page = screen === 'settings' ? settingsScreen() : screen === 'exercises' ? exercisesScreen()
       : screen === 'test' ? testScreen() : screen === 'gear' ? gearScreen() : screen === 'body' ? bodyScreen()
-      : screen === 'live' ? liveScreen() : screen === 'player' && player ? playerScreen() : screen === 'report' ? reportScreen()
+      : screen === 'live' ? liveScreen() : screen === 'player' && player ? playerScreen() : screen === 'report' ? reportScreen() : screen === 'admin' ? adminScreen()
       : tab === 'today' ? todayScreen() : tab === 'duel' ? duelScreen() : tab === 'chat' ? chatScreen()
       : tab === 'progress' ? progressScreen() : homeScreen();
     var banner = DEMO ? '<div class="demo">Demo with sample data. Open it from the bot in Telegram to see your real crew.</div>'
@@ -1250,6 +1326,7 @@
     else if (route === 'live') openLive();
     else if (route === 'player') setTimeout(startPlayer, 0);
     else if (['report', 'settings', 'test', 'body', 'gear', 'exercises'].indexOf(route) >= 0) screen = route;
+    else if (route === 'admin' && state.me.is_owner) { screen = 'admin'; loadAdmin(state.me.id); }
   }
 
   function snapshotValues(ids) {
@@ -1664,6 +1741,7 @@
       case 'open-screen':
         toastEl.hidden = true;
         if (d.screen === 'live') openLive(); else screen = d.screen;
+        if (d.screen === 'admin') { adminData = null; loadAdmin(me().id); }
         sheet = null; animateNext = true; render(); window.scrollTo(0, 0);
         break;
       case 'close-screen':
@@ -1769,6 +1847,16 @@
       case 'p-rest-add': player.left += 15; player.restTotal += 15; render(); break;
       case 'p-timer': playerTimer(); break;
       case 'p-timer-stop': playerTimerStop(); break;
+      // admin
+      case 'admin-user': adminData.user = +d.id; loadAdmin(+d.id, null); break;
+      case 'admin-date': loadAdmin(adminData.user, d.date); break;
+      case 'admin-mark': adminAct({ type: 'admin_item', item_id: +d.id, mark: d.mark }); break;
+      case 'admin-day':
+        if (d.op === 'reset' && !el.dataset.confirm) { el.dataset.confirm = '1'; el.textContent = 'Tap again to reset'; break; }
+        adminAct({ type: 'admin_day', op: d.op });
+        break;
+      case 'admin-ex': adminAct({ type: 'admin_exercise', exercise_id: +d.id, target: +d.target }); break;
+      case 'admin-ex-toggle': adminAct({ type: 'admin_exercise', exercise_id: +d.id, toggle: true }); break;
       // report card
       case 'report-which': reportWhich = d.which; animateNext = true; render(); break;
       case 'report-image':
@@ -1798,6 +1886,9 @@
         sheet = null;
         act({ type: 'roast', target: +f.target, text: data.get('text') }, { after: function (res) { if (res.sent) attack(+f.target, '🔥', 'ROASTED'); } });
         break;
+      case 'admin-item':
+        adminAct({ type: 'admin_item', item_id: +f.id, reps: data.get('reps'), target: data.get('target') });
+        break;
       case 'chat':
         var text = String(data.get('text') || '').trim();
         if (!text) return;
@@ -1813,9 +1904,11 @@
   app.addEventListener('change', function (e) {
     if (e.target.matches('[data-input="photo"]') && e.target.files[0]) uploadPhoto(e.target.files[0]);
     if (e.target.matches('[data-input="proof"]') && e.target.files[0]) uploadProof(e.target.files[0]);
+    if (e.target.matches('[data-input="admin-date"]') && e.target.value) loadAdmin(adminData.user, e.target.value);
   });
   app.addEventListener('input', function (e) {
     if (e.target.name === 'text' && e.target.closest('[data-form="chat"]')) chatDraft = e.target.value;
+    if (e.target.matches('[data-input="admin-reason"]')) adminReason = e.target.value;
   });
   app.addEventListener('focusout', function () {
     setTimeout(function () { if (pendingReload && !typing() && !sheet) load(); }, 50);
