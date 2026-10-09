@@ -57,6 +57,9 @@ USER_SETTING_KEYS = frozenset({
     "ui_anime", "onboarded", "seen_rank", "gear_hair", "gear_band", "gear_aura",
     # together: chat read marker, live training, last time the app was open
     "chat_seen", "live_since", "rest_until", "app_seen",
+    # the System: allocated stats, level-up screens, title, job, Daily Quest on/off
+    "stat_str", "stat_agi", "stat_vit", "stat_int", "stat_per",
+    "seen_level", "announced_level", "title", "job", "dq_enabled",
 })
 
 
@@ -404,6 +407,75 @@ def init_db(db_path: Optional[Path] = None) -> None:
                 PRIMARY KEY (proof_id, user_id)
             );
         """)
+        # The System (Solo Leveling): moderators (e.g. Mom) approve quests;
+        # they are not crew members and never train or get reminders.
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS moderators (
+                user_id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL
+            );
+        """)
+        # A quest is a template; each completion for a period is a quest_run.
+        # assignee NULL = every crew member. repeat: once | daily | weekly.
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS quests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                category TEXT NOT NULL,
+                rank TEXT NOT NULL,
+                repeat TEXT NOT NULL DEFAULT 'once',
+                assignee INTEGER,
+                created_by INTEGER NOT NULL,
+                penalty INTEGER NOT NULL DEFAULT 0,
+                active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL
+            );
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS quest_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                quest_id INTEGER NOT NULL REFERENCES quests(id) ON DELETE CASCADE,
+                user_id INTEGER NOT NULL,
+                period TEXT NOT NULL,
+                status TEXT NOT NULL,
+                note TEXT NOT NULL DEFAULT '',
+                proof TEXT,
+                review_note TEXT NOT NULL DEFAULT '',
+                exp INTEGER NOT NULL DEFAULT 0,
+                submitted_at TEXT NOT NULL,
+                reviewed_at TEXT,
+                reviewed_by INTEGER,
+                UNIQUE (quest_id, user_id, period)
+            );
+        """)
+        # EXP that doesn't come from weekly points (quests, Daily Quest rewards).
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS exp_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                amount INTEGER NOT NULL,
+                source TEXT NOT NULL,
+                ref TEXT,
+                created_at TEXT NOT NULL
+            );
+        """)
+        # Daily Quest progress logged outside the workout (run, extra reps).
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS daily_quests (
+                user_id INTEGER NOT NULL,
+                date TEXT NOT NULL,
+                pushups INTEGER NOT NULL DEFAULT 0,
+                situps INTEGER NOT NULL DEFAULT 0,
+                squats INTEGER NOT NULL DEFAULT 0,
+                run_m INTEGER NOT NULL DEFAULT 0,
+                level INTEGER,
+                completed_at TEXT,
+                rewarded INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (user_id, date)
+            );
+        """)
+
         # Daily bets between two crew members; resolved at the 23:00 deadline.
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS bets (
@@ -521,8 +593,11 @@ def remove_user(user_id: int, db_path: Optional[Path] = None) -> None:
         conn.execute("DELETE FROM proof_votes WHERE user_id = ? OR proof_id IN "
                      "(SELECT id FROM proof_clips WHERE user_id = ?);", (user_id, user_id))
         conn.execute("DELETE FROM bets WHERE challenger = ? OR target = ?;", (user_id, user_id))
+        conn.execute("DELETE FROM quest_runs WHERE user_id = ?;", (user_id,))
+        conn.execute("DELETE FROM quests WHERE assignee = ?;", (user_id,))
         for table in ("exercises", "pauses", "fitness_results", "wake_logs", "crew_events", "activity",
-                      "body_logs", "progress_photos", "chat_messages", "proof_clips", "user_settings", "users"):
+                      "body_logs", "progress_photos", "chat_messages", "proof_clips", "exp_log", "daily_quests",
+                      "user_settings", "users"):
             conn.execute(f"DELETE FROM {table} WHERE user_id = ?;", (user_id,))
         conn.commit()
 

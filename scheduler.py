@@ -23,7 +23,7 @@ from database import (
 )
 from monitoring import health, ping_healthcheck
 from services import (compete_service, crew_service, fitness_test_service, partner_service, progression_service,
-                      social_service, wake_service)
+                      quest_service, social_service, wake_service)
 from services.summary_service import build_weekly_summary
 from views import HTML, build_evening_nudge, build_today_workout_view, esc, quick_toggle_button
 
@@ -387,6 +387,8 @@ def reschedule_user_jobs(scheduler: AsyncIOScheduler, bot: Bot, user_id: int) ->
         # Crew: unfinished challenges are lost at 23:00 (their time)
         ("challenge_deadline", compete_service.close_challenges,
          CronTrigger(hour=compete_service.CHALLENGE_DEADLINE_HOUR, minute=0, timezone=tz)),
+        # The System: a missed Daily Quest yesterday brings a Penalty Quest
+        ("penalty_check", quest_service.penalty_check, CronTrigger(hour=0, minute=5, timezone=tz)),
         # Crew: today's bets are settled at the same deadline
         ("bet_deadline", social_service.close_bets,
          CronTrigger(hour=compete_service.CHALLENGE_DEADLINE_HOUR, minute=1, timezone=tz)),

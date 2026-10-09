@@ -61,6 +61,11 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     from services.partner_service import INVITE_PREFIX, remember_owner_name
 
     args = getattr(context, "args", None) or []
+    from handlers.quests import handle_moderator_join
+    from services.quest_service import MOD_INVITE_PREFIX
+    if args and args[0].startswith(MOD_INVITE_PREFIX):
+        await handle_moderator_join(update, context, args[0][len(MOD_INVITE_PREFIX):])
+        return
     if args and args[0].startswith(CREW_PREFIX):
         await handle_crew_join(update, context, args[0][len(CREW_PREFIX):])
         return

@@ -83,6 +83,7 @@ def build_crew_menu(notice: str = "") -> tuple[str, InlineKeyboardMarkup]:
         if len(members) > 1:
             row.append(InlineKeyboardButton("⚙️ Manage", callback_data="crew_manage"))
         keyboard.append(row)
+        keyboard.append([InlineKeyboardButton("👩‍⚖️ Invite a quest moderator (Mom)", callback_data="crew_modinvite")])
     else:
         keyboard.append([InlineKeyboardButton("🚪 Leave crew", callback_data="crew_leave")])
     return "\n".join(lines), InlineKeyboardMarkup(keyboard)
@@ -216,6 +217,16 @@ async def crew_callback_handler(update: Update, context: ContextTypes.DEFAULT_TY
             "They get their own workouts, reminders and streak, and you'll see each other's progress."
         )
         text, markup = build_crew_menu()
+    elif data == "crew_modinvite" and is_owner():
+        from services import quest_service as qs
+        code = qs.create_mod_invite()
+        link = f"https://t.me/{context.bot.username}?start={qs.MOD_INVITE_PREFIX}{code}"
+        await query.message.reply_text(
+            "👩‍⚖️ Send this link to the quest moderator (Mom). It works once and expires in "
+            f"{qs.MOD_INVITE_HOURS} hours:\n\n{link}\n\n"
+            "She approves your quests and gives new ones. She doesn't train or get reminders."
+        )
+        text, markup = build_crew_menu()
     elif data == "crew_manage" and is_owner():
         text, markup = build_manage_menu()
     elif data.startswith("crew_remove:") and is_owner():
@@ -260,6 +271,8 @@ async def _remove_member(context, user_id: int, removed_by_owner: bool) -> None:
     from services.social_service import proofs_dir
     shutil.rmtree(photos_dir(user_id), ignore_errors=True)
     shutil.rmtree(proofs_dir(user_id), ignore_errors=True)
+    from services.quest_service import proofs_dir as quest_proofs_dir
+    shutil.rmtree(quest_proofs_dir(user_id), ignore_errors=True)
     if removed_by_owner:
         await cs.send_html(context.bot, user_id, "👋 You were removed from the workout crew.")
     for uid in remaining:

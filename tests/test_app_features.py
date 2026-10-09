@@ -15,6 +15,7 @@ import config
 from database import add_user, as_user, get_connection, set_setting, set_user_name
 from services import activity_service as act
 from services import body_service as body
+from services import leveling_service as lv
 from services import progression_service as prog
 from services.fitness_test_service import save_result
 from services.workout_service import (
@@ -133,16 +134,22 @@ def test_lowering_reps_after_done_reopens_the_exercise():
 # XP, ranks, gear, seasons
 # --------------------------------------------------------------------------
 
-def test_rank_thresholds():
-    assert prog.rank_for(0)["letter"] == "E"
-    assert prog.rank_for(299)["letter"] == "D" and prog.rank_for(299)["next_at"] == 300
-    assert prog.rank_for(3000)["letter"] == "S" and prog.rank_for(3000)["next_letter"] is None
+def test_ranks_follow_system_levels():
+    assert prog.rank_for(0)["letter"] == "E" and prog.rank_for(0)["level"] == 1
+    # The rank changes at levels 10 (D), 20 (C), ... 90 (National Level).
+    exp_level_10 = sum(lv.exp_to_next(level) for level in range(1, 10))
+    assert prog.rank_for(exp_level_10 - 1)["letter"] == "E"
+    assert prog.rank_for(exp_level_10)["letter"] == "D" and prog.rank_for(exp_level_10)["level"] == 10
+    top = prog.rank_for(10 ** 9)
+    assert top["letter"] == "N" and top["next_letter"] is None
 
 
-def test_xp_is_all_points_ever():
+def test_exp_is_all_points_ever_plus_quests():
     for d in ("2026-09-01", "2026-10-01"):
         complete_all_exercises_for_workout(get_or_create_daily_workout(d)["id"])
-    assert prog.xp() == 30
+    assert prog.xp() == 30 * lv.EXP_PER_POINT
+    lv.add_exp(config.USER_ID, 100, "quest")
+    assert prog.xp() == 30 * lv.EXP_PER_POINT + 100
 
 
 def test_gear_unlocks_and_equipping():
@@ -276,11 +283,7 @@ def test_onboarding_equip_and_rank_ack():
     assert res["state"]["me"]["onboarded"] is True and res["state"]["me"]["gear"]["hair"] == "#7FB2FF"
     assert act_(config.USER_ID, type="equip", slot="aura", id="royal")["message"] == "Not unlocked yet."
     set_setting("seen_rank", "E")
-    with get_connection() as conn:  # enough XP for rank D
-        for i in range(7):
-            conn.execute("INSERT INTO daily_workouts (user_id, date, status, created_at) VALUES (?, ?, 'completed', 'x');",
-                         (config.USER_ID, f"2026-09-1{i}"))
-        conn.commit()
+    lv.add_exp(config.USER_ID, sum(lv.exp_to_next(level) for level in range(1, 10)), "quest")  # level 10 = rank D
     res = act_(config.USER_ID, type="ack_rank")
     assert res["state"]["me"]["seen_rank"] == "D"
     assert any("reached rank D" in e["text"] for e in res["state"]["activity"])

@@ -10,6 +10,8 @@ from services import compete_service as cmp
 from services import crew_service as cs
 from services import fitness_test_service as fts
 from services import progression_service as prog
+from services import leveling_service as lv
+from services import quest_service as qs
 from services import social_service as social
 from services import wake_service as ws
 from services.workout_service import (
@@ -184,8 +186,9 @@ def build_state() -> Dict[str, Any]:
             "progress": social.fine_progress(snap["items"], snap["status"]), "wake": ws.today_label(uid),
             "live": social.is_live(uid), "rest_left": social.rest_left(uid),
             "rank": prog.rank_for(prog.xp(uid))["letter"],
+            "level": lv.level_of(uid),
             "gear": prog.equipped(uid),
-            "title": prog.month_title(last_season) if last_champion == uid else None,
+            "title": lv.status(uid)["title"] or (prog.month_title(last_season) if last_champion == uid else None),
         })
     standings = cmp.standings(today)
     pulse = social.pulse()
@@ -202,6 +205,7 @@ def build_state() -> Dict[str, Any]:
             "onboarded": get_setting("onboarded", "0") == "1",
             "rank": my_rank,
             "seen_rank": get_setting("seen_rank", "E"),
+            "seen_level": int(get_setting("seen_level", "0") or 0),
             "gear": prog.equipped(me),
         },
         "settings": _settings(),
@@ -245,4 +249,12 @@ def build_state() -> Dict[str, Any]:
         "bet_kinds": [{"key": k, "label": v} for k, v in social.BET_KINDS.items()],
         "stakes": list(social.STAKES),
         "report": {"last": social.report_card(me, last_season), "current": social.report_card(me, today[:7])},
+        "system": lv.status(me),
+        "daily_quest": qs.daily_quest(me, today),
+        "quests": qs.quests_for(me, today),
+        "can_review": qs.can_review(me),
+        "reviews": qs.pending_reviews() if qs.can_review(me) else [],
+        "quest_ranks": [{"rank": r, "exp": e} for r, e in qs.QUEST_RANKS.items()],
+        "quest_templates": [{"title": t, "category": c, "rank": r, "repeat": rp} for t, c, r, rp in qs.TEMPLATES],
+        "moderators": [{"id": m["user_id"], "name": m["name"]} for m in qs.moderators()] if me == config.USER_ID else [],
     }
