@@ -26,8 +26,10 @@ OWNER, BROTHER = 1, 2
 config.DB_PATH = DEV_DB
 config.USER_ID = OWNER
 
-from database import add_user, as_user, init_db, set_setting  # noqa: E402
+from database import add_user, as_user, get_connection, init_db, set_setting  # noqa: E402
 from services import body_service  # noqa: E402
+from services import progression_service as prog  # noqa: E402
+from services.social_service import send_chat  # noqa: E402
 from services.workout_service import (  # noqa: E402
     complete_all_exercises_for_workout,
     get_current_date_str,
@@ -67,9 +69,16 @@ def seed() -> None:
                 complete_all_exercises_for_workout(workout["id"])
             for back, weight in enumerate((81.0, 81.4, 81.9, 82.3)):
                 body_service.log_body(weight, None, (today - timedelta(days=7 * back)).isoformat())
+            set_setting("seen_rank", prog.rank_for(prog.xp(uid))["letter"])
+    # The history above would fill the fight log with "just now" entries; start clean.
+    with get_connection() as conn:
+        conn.execute("DELETE FROM activity;")
+        conn.execute("UPDATE crew_events SET delivered = 1;")
+        conn.commit()
     with as_user(BROTHER):
         items = get_or_create_daily_workout(today.isoformat())["items"]
         update_workout_item(items[0]["id"], delta_reps=20)
+        send_chat(text="bet you can't beat me today 😏")
 
 
 def main() -> None:

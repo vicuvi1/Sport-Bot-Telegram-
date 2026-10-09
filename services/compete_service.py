@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 from database import as_user, current_user_id, get_connection, get_users
 from services import activity_service
 from services import crew_service as cs
+from services import social_service
 from services.summary_service import week_bounds
 from services.workout_service import get_current_date_str, get_or_create_daily_workout
 
@@ -27,7 +28,7 @@ POINTS = {
     "forfeit": 5,       # did your forfeit
 }
 POINTS_LEGEND = ("workout +10 · full targets +5 · woke on time +5 · challenge +15 · "
-                 "test PR +20 · forfeit done +5")
+                 "test PR +20 · forfeit done +5 · legit proof +3 (cap −5) · bets ± stake")
 
 FORFEITS = [
     "💪 50 extra push-ups",
@@ -95,6 +96,8 @@ def points_breakdown(user_id: int, start: str, end: str) -> Dict[str, int]:
         "test_pr": prs * POINTS["test_pr"],
         "challenge": won * POINTS["challenge"] + chickens * POINTS["chicken"],
         "forfeit": forfeits * POINTS["forfeit"],
+        "proof": social_service.proof_points(user_id, start, end),
+        "bets": social_service.bet_points(user_id, start, end),
     }
     parts["total"] = sum(parts.values())
     return parts

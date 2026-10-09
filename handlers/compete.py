@@ -16,7 +16,8 @@ from views import HTML, card, esc, nice_date
 logger = logging.getLogger(__name__)
 
 PART_LABELS = [("workout", "🏋️ Workouts"), ("full", "🎯 Full targets"), ("wake", "☀️ On-time wake-ups"),
-               ("challenge", "⚔️ Challenges"), ("test_pr", "🧪 Test PRs"), ("forfeit", "😬 Forfeits done")]
+               ("challenge", "⚔️ Challenges"), ("test_pr", "🧪 Test PRs"), ("forfeit", "😬 Forfeits done"),
+               ("proof", "🎥 Proof clips"), ("bets", "🎲 Bets")]
 
 
 def build_points() -> tuple[str, InlineKeyboardMarkup]:
@@ -29,7 +30,7 @@ def build_points() -> tuple[str, InlineKeyboardMarkup]:
     mine = next((r["parts"] for r in table if r["user_id"] == current_user_id()), None)
     if mine:
         lines += ["", "<b>Your points</b>",
-                  card([f"{label}  +{mine[key]}" for key, label in PART_LABELS if mine[key]] or ["Nothing yet this week"])]
+                  card([f"{label}  {mine[key]:+d}" for key, label in PART_LABELS if mine.get(key)] or ["Nothing yet this week"])]
     owed = cmp.open_forfeits()
     if owed:
         lines.append("")

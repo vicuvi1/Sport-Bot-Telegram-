@@ -55,6 +55,8 @@ USER_SETTING_KEYS = frozenset({
     "wake_time", "wake_enabled", "roast_level", "crew_feed",
     # Mini App
     "ui_anime", "onboarded", "seen_rank", "gear_hair", "gear_band", "gear_aura",
+    # together: chat read marker, live training, last time the app was open
+    "chat_seen", "live_since", "rest_until", "app_seen",
 })
 
 
@@ -371,6 +373,52 @@ def init_db(db_path: Optional[Path] = None) -> None:
             );
         """)
 
+        # Crew chat. kind: text | sticker | proof (data holds the proof id).
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS chat_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                kind TEXT NOT NULL,
+                text TEXT NOT NULL DEFAULT '',
+                data TEXT,
+                created_at TEXT NOT NULL
+            );
+        """)
+        # Proof clips: short videos/photos shared with the crew and rated legit/cap.
+        # filename becomes NULL once the file is cleaned up (after PROOF_KEEP_DAYS).
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS proof_clips (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                date TEXT NOT NULL,
+                filename TEXT,
+                media TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS proof_votes (
+                proof_id INTEGER NOT NULL REFERENCES proof_clips(id) ON DELETE CASCADE,
+                user_id INTEGER NOT NULL,
+                vote TEXT NOT NULL,
+                PRIMARY KEY (proof_id, user_id)
+            );
+        """)
+        # Daily bets between two crew members; resolved at the 23:00 deadline.
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS bets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date TEXT NOT NULL,
+                challenger INTEGER NOT NULL,
+                target INTEGER NOT NULL,
+                kind TEXT NOT NULL,
+                stake INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'offered',
+                winner INTEGER,
+                created_at TEXT NOT NULL
+            );
+        """)
+
         # Scheduled one-off alerts (rest timers, snoozed reminders).
         # Persisted so they survive a bot restart; fire_at is a UTC ISO string.
         cursor.execute("""
@@ -470,8 +518,11 @@ def remove_user(user_id: int, db_path: Optional[Path] = None) -> None:
         conn.execute("DELETE FROM forfeits WHERE winner = ? OR loser = ?;", (user_id, user_id))
         conn.execute("DELETE FROM activity_reactions WHERE user_id = ? OR activity_id IN "
                      "(SELECT id FROM activity WHERE user_id = ?);", (user_id, user_id))
+        conn.execute("DELETE FROM proof_votes WHERE user_id = ? OR proof_id IN "
+                     "(SELECT id FROM proof_clips WHERE user_id = ?);", (user_id, user_id))
+        conn.execute("DELETE FROM bets WHERE challenger = ? OR target = ?;", (user_id, user_id))
         for table in ("exercises", "pauses", "fitness_results", "wake_logs", "crew_events", "activity",
-                      "body_logs", "progress_photos", "user_settings", "users"):
+                      "body_logs", "progress_photos", "chat_messages", "proof_clips", "user_settings", "users"):
             conn.execute(f"DELETE FROM {table} WHERE user_id = ?;", (user_id,))
         conn.commit()
 

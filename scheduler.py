@@ -22,7 +22,8 @@ from database import (
     delete_scheduled_alert,
 )
 from monitoring import health, ping_healthcheck
-from services import compete_service, crew_service, fitness_test_service, partner_service, progression_service, wake_service
+from services import (compete_service, crew_service, fitness_test_service, partner_service, progression_service,
+                      social_service, wake_service)
 from services.summary_service import build_weekly_summary
 from views import HTML, build_evening_nudge, build_today_workout_view, esc, quick_toggle_button
 
@@ -386,6 +387,9 @@ def reschedule_user_jobs(scheduler: AsyncIOScheduler, bot: Bot, user_id: int) ->
         # Crew: unfinished challenges are lost at 23:00 (their time)
         ("challenge_deadline", compete_service.close_challenges,
          CronTrigger(hour=compete_service.CHALLENGE_DEADLINE_HOUR, minute=0, timezone=tz)),
+        # Crew: today's bets are settled at the same deadline
+        ("bet_deadline", social_service.close_bets,
+         CronTrigger(hour=compete_service.CHALLENGE_DEADLINE_HOUR, minute=1, timezone=tz)),
         # Crew: roast them at 21:00 if a crew mate trained today and they didn't
         ("crew_auto_roast", crew_service.send_auto_roast,
          CronTrigger(hour=crew_service.AUTO_ROAST_HOUR, minute=0, timezone=tz)),
@@ -452,6 +456,13 @@ def schedule_global_jobs(scheduler: AsyncIOScheduler, bot: Bot) -> None:
     scheduler.add_job(run_as, trigger=CronTrigger(day=1, hour=9, minute=0, timezone=tz),
                       id="crew_season_results", args=[owner, progression_service.send_season_results, bot],
                       replace_existing=True)
+    # Monthly report cards on the 1st, right after the season results.
+    scheduler.add_job(run_as, trigger=CronTrigger(day=1, hour=9, minute=5, timezone=tz),
+                      id="crew_report_cards", args=[owner, social_service.send_report_cards, bot],
+                      replace_existing=True)
+    # Proof clips are only kept for a month, so the disk never fills up.
+    scheduler.add_job(social_service.cleanup_proofs_job, trigger=CronTrigger(hour=4, minute=30, timezone=tz),
+                      id="proof_cleanup", args=[bot], replace_existing=True)
     # External heartbeat every 5 minutes (only with HEALTHCHECK_URL).
     if config.HEALTHCHECK_URL:
         scheduler.add_job(send_heartbeat, trigger=IntervalTrigger(minutes=HEARTBEAT_MINUTES),

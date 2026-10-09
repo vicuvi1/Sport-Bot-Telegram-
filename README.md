@@ -5,7 +5,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/telegram-bot-26A5E4?style=flat-square&logo=telegram&logoColor=white" alt="Telegram bot">
-  <img src="https://img.shields.io/badge/tests-292%20passing-22c55e?style=flat-square" alt="292 tests passing">
+  <img src="https://img.shields.io/badge/tests-309%20passing-22c55e?style=flat-square" alt="309 tests passing">
   <img src="https://img.shields.io/badge/AI-none%2C%20no%20API%20keys-0ea5e9?style=flat-square" alt="No AI, no API keys">
   <img src="https://img.shields.io/badge/license-MIT-a855f7?style=flat-square" alt="MIT license">
 </p>
@@ -34,7 +34,7 @@ Most workout apps want a subscription, an account, and your data. This one lives
 | 🎯 **It adapts to you** | Tell it a workout was *too easy* or *too hard* and your targets change. After a break it eases you back in at 70% → 85% → 100%. |
 | 🧪 **It proves you're changing** | A 10-minute fitness test on the 1st of every month: *push-ups 18 → 24 → 31*. Real numbers, not just streaks. |
 | 🤝 **It keeps you honest** | Invite a friend as your accountability partner: they get your weekly summary and can send you 👏 high-fives. |
-| 🛡 **It runs for years** | Verified backups, error reports in Telegram, an optional outside alarm if the server dies, and 292 automated tests. |
+| 🛡 **It runs for years** | Verified backups, error reports in Telegram, an optional outside alarm if the server dies, and 309 automated tests. |
 | 🔒 **It's yours** | You plus only the people you invite, a local SQLite file, no AI, no API keys, no tracking. |
 
 <p align="center">
@@ -97,6 +97,13 @@ Invite your brother (or up to 5 friends) with a single-use link. Everyone gets *
 - **A live duel:** a fight log of what your crew does (react with 🔥💀😂🐔👑), write your own roasts, and **ghost pace**: *"yesterday at this time Andrei had 120 reps, you have 100"*.
 - **Anime progression:** XP and ranks from E to S with a rank-up animation, unlockable mascot gear (hair, headbands, auras), and monthly **seasons** with a champion title.
 - **Body change:** skill ladders (push-ups → diamond → archer...), weekly weight and waist trends, and **private** progress photos with then-and-now. Tap any calendar day to see what you did.
+- **It feels alive:** your mascot breathes, blinks, jumps on every rep and sweats near the finish; big +5 numbers, combos, confetti and sounds; swipe between tabs and pull to refresh.
+- **Duel arena:** your training drains your brother's HP live (and his drains yours); a roast flies over as a fireball 🔥.
+- **Crew chat:** messages, mascot stickers and quick replies, with a Telegram ping when he isn't in the app. **Proof clips:** send a 5-second video of your last rep; he rates it 🔥 legit (+3) or 🧢 cap (−5).
+- **Train live together:** see each other's reps update every 2 seconds, rest timers included. **Bets:** 5, 10 or 20 points on *more push-ups today* or *who finishes first*, settled automatically at 23:00.
+- **Overtake alerts:** *"⚡ Andrei just passed you: 120 vs 100 reps"* with a Revenge button.
+- **Guided workout:** one exercise at a time with an animated demo, a giant +1 button, and rest countdowns that beep.
+- **Monthly report card:** your month in one shareable image, also sent by the bot on the 1st.
 
 ### 🤝 Stay accountable
 - **Accountability partner** (owner only): a single-use invite link (48 h). Your friend gets only what you tick: weekly summary ✅, fitness test results ✅, and optionally an alert after 3 missed workouts in a row (you're warned the morning before).
@@ -246,7 +253,7 @@ flowchart LR
 ```
 
 - **Python 3.11+**, `python-telegram-bot` 22, `APScheduler` 3, SQLite. Pinned dependencies for long-term stability.
-- **292 tests** cover crew isolation and the multi-user migration, streaks, pauses, the comeback ramp, feedback, the fitness test, partner invites, backup verification, button routing and startup. Run them with `pytest -q`.
+- **309 tests** cover crew isolation and the multi-user migration, streaks, pauses, the comeback ramp, feedback, the fitness test, partner invites, backup verification, button routing and startup. Run them with `pytest -q`.
 
 ---
 

@@ -10,3 +10,4 @@ venv/
 *.pyc
 .pytest_cache/
 data/photos/
+data/proofs/

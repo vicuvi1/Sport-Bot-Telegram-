@@ -7,6 +7,8 @@ requires for Mini Apps.
 API (all require "Authorization: tma <initData>", see webapp/auth.py):
   GET  /api/state   everything the screens show
   POST /api/action  {"type": ..., ...}; returns {"ok", "message", "state"}
+  GET  /api/pulse   small snapshot polled every few seconds (live progress, chat)
+  POST /api/photo, /api/proof   raw image/video body; GET /api/photo|proof/<id>
 """
 
 import logging
@@ -19,6 +21,7 @@ from aiohttp import web
 import config
 from database import as_user, current_user_id, get_connection, get_setting, is_member, set_setting
 from services import activity_service, body_service
+from services import social_service as social
 from services import fitness_test_service as fts
 from services import progression_service as prog
 from services import compete_service as cmp
@@ -56,7 +59,7 @@ DEV_USER_KEY = web.AppKey("dev_user", int)
 # Telegram loads the app in an iframe on web/desktop; everything else is ours.
 CSP = ("default-src 'self'; script-src 'self' https://telegram.org; "
        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; "
-       "img-src 'self' data: blob:; connect-src 'self'; "
+       "img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; "
        "frame-ancestors https://web.telegram.org https://*.telegram.org")
 
 
@@ -162,7 +165,7 @@ async def _act(request: web.Request, data: Dict[str, Any]) -> Optional[str]:
                                          custom_text=data.get("text") if isinstance(data.get("text"), str) else None)
         else:
             result = await cs.send_hype(bot, current_user_id(), target)
-        return result["message"]
+        return {"message": result["message"], "sent": bool(result.get("sent"))}
     if kind == "wake_answer":
         outcome = ws.answer(get_current_date_str(), _int(data, "choice"))
         return {"wrong": "Wrong number. Are you even awake?", "expired": "This check has expired.",
@@ -267,6 +270,39 @@ async def _act(request: web.Request, data: Dict[str, Any]) -> Optional[str]:
         return error or "Saved. Only you can see this."
     if kind == "photo_delete":
         return "Photo deleted." if body_service.delete_photo(_int(data, "id")) else "Not found."
+    if kind == "chat_send":
+        text = data.get("text") if isinstance(data.get("text"), str) else None
+        sticker = data.get("sticker") if isinstance(data.get("sticker"), str) else None
+        _, error = social.send_chat(text=text, sticker=sticker)
+        return error
+    if kind == "chat_seen":
+        social.mark_chat_seen(_int(data, "id"))
+        return None
+    if kind == "live_start":
+        social.live_start()
+        return None
+    if kind == "live_stop":
+        social.live_stop()
+        return None
+    if kind == "live_rest":
+        social.start_rest(_int(data, "seconds"))
+        return None
+    if kind == "bet_offer":
+        _, error = social.offer_bet(current_user_id(), _int(data, "target"), str(data.get("kind")), _int(data, "stake"))
+        return error or "Bet sent! They have until 23:00 to answer."
+    if kind == "bet_answer":
+        accept = bool(data.get("accept"))
+        error = social.respond_bet(_int(data, "id"), current_user_id(), accept)
+        if error:
+            return error
+        bet = social.get_bet(_int(data, "id"))
+        await cs.send_html(bot, bet["challenger"],
+                           f"🎲 <b>{esc(cs.display_name(bet['target']))}</b> "
+                           f"{'accepted' if accept else 'backed out of'} your {bet['stake']}-pt bet: "
+                           f"{social.BET_KINDS[bet['kind']]}")
+        return "Bet's on! 🎲" if accept else "Backed out. No points lost."
+    if kind == "proof_vote":
+        return social.vote_proof(_int(data, "id"), str(data.get("vote")))
     raise web.HTTPBadRequest(text="unknown action")
 
 
@@ -369,6 +405,34 @@ async def handle_photo_upload(request: web.Request) -> web.Response:
     return web.json_response({**result, "state": build_state()}, status=200 if result["ok"] else 400)
 
 
+async def handle_pulse(request: web.Request) -> web.Response:
+    return web.json_response(social.pulse())
+
+
+async def handle_proof_upload(request: web.Request) -> web.Response:
+    """Raw video/photo body; shared with the crew in the chat."""
+    data = await request.read()
+    result = social.save_proof(data)
+    bot = request.app.get(BOT_KEY)
+    if bot is not None and result["ok"]:
+        await cs.tick(bot)
+    return web.json_response({**result, "state": build_state()}, status=200 if result["ok"] else 400)
+
+
+async def handle_proof(request: web.Request) -> web.StreamResponse:
+    try:
+        proof_id = int(request.match_info["proof_id"])
+    except ValueError:
+        raise web.HTTPNotFound()
+    found = social.proof_file(proof_id)
+    if not found:
+        raise web.HTTPNotFound()
+    path, mime = found
+    response = web.FileResponse(path, headers={"Content-Type": mime})
+    response.headers["Cache-Control"] = "private, max-age=86400"
+    return response
+
+
 async def handle_photo(request: web.Request) -> web.StreamResponse:
     try:
         photo_id = int(request.match_info["photo_id"])
@@ -402,7 +466,7 @@ async def handle_day(request: web.Request) -> web.Response:
 def _asset_version() -> str:
     """Changes whenever app.js or app.css changes, so phones never keep stale files
     (Telegram's in-app browser caches aggressively)."""
-    return str(int(max((STATIC_DIR / name).stat().st_mtime for name in ("app.js", "app.css"))))
+    return str(int(max((STATIC_DIR / name).stat().st_mtime for name in ("app.js", "fx.js", "app.css"))))
 
 
 async def handle_index(request: web.Request) -> web.Response:
@@ -417,8 +481,9 @@ async def handle_health(request: web.Request) -> web.Response:
 def create_webapp(bot=None, bot_data: Optional[dict] = None, bot_token: Optional[str] = None,
                   dev_user: Optional[int] = None) -> web.Application:
     """dev_user is for webapp/dev.py only: API calls without Telegram login act as that user."""
-    # Large enough for a resized progress photo; JSON actions are tiny.
-    app = web.Application(middlewares=[auth_middleware], client_max_size=body_service.MAX_PHOTO_BYTES + 1024)
+    # Large enough for a short proof clip; JSON actions are tiny.
+    app = web.Application(middlewares=[auth_middleware],
+                          client_max_size=max(body_service.MAX_PHOTO_BYTES, social.MAX_PROOF_BYTES) + 1024)
     app[BOT_KEY] = bot
     app[BOT_DATA_KEY] = bot_data if bot_data is not None else {}
     app[TOKEN_KEY] = bot_token or config.BOT_TOKEN
@@ -431,6 +496,9 @@ def create_webapp(bot=None, bot_data: Optional[dict] = None, bot_token: Optional
     app.router.add_post("/api/photo", handle_photo_upload)
     app.router.add_get("/api/photo/{photo_id}", handle_photo)
     app.router.add_get("/api/day", handle_day)
+    app.router.add_get("/api/pulse", handle_pulse)
+    app.router.add_post("/api/proof", handle_proof_upload)
+    app.router.add_get("/api/proof/{proof_id}", handle_proof)
     app.router.add_static("/static/", STATIC_DIR, append_version=False)
     return app
 
