@@ -1,0 +1,56 @@
+<!doctype html>
+<!-- README hero banner. Rendered to docs/assets/hero.png by scripts/readme_images.mjs -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700;800&family=DM+Sans:wght@500;700&family=Dela+Gothic+One&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; background: transparent; }
+  body { position: relative; width: 1280px; height: 700px; overflow: hidden; }
+  .card { position: absolute; inset: 0; border-radius: 36px; overflow: hidden;
+    background: radial-gradient(circle at 72% 45%, #2A3150 0%, #161A24 42%, #0F1115 75%); }
+  .lines { position: absolute; left: 0; top: 0; width: 1280px; height: 700px; }
+  .kanji { position: absolute; right: -10px; bottom: -60px; font: 330px 'Dela Gothic One'; color: rgba(255,255,255,.035); letter-spacing: -10px; }
+  .left { position: absolute; left: 72px; top: 92px; width: 560px; color: #F2F2EE; font-family: 'DM Sans', sans-serif; }
+  .pill { display: inline-flex; gap: 10px; align-items: center; background: rgba(200,241,53,.12); color: #C8F135; border: 1px solid rgba(200,241,53,.35);
+    padding: 8px 16px; border-radius: 999px; font-weight: 700; font-size: 17px; letter-spacing: 1.5px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: #FF4D5E; box-shadow: 0 0 0 5px rgba(255,77,94,.2); }
+  h1 { margin: 22px 0 0; font: 800 132px/0.86 'Barlow Condensed', sans-serif; letter-spacing: 1px; text-transform: uppercase; }
+  h1 .me { color: #C8F135; } h1 .them { color: #FF8A3D; }
+  .tag { margin-top: 24px; font-size: 27px; line-height: 1.35; color: #D6D8DD; }
+  .tag b { color: #F2F2EE; }
+  .chips { margin-top: 30px; display: flex; flex-wrap: wrap; gap: 10px; }
+  .chip { background: #1D212A; border: 1px solid #2E3340; border-radius: 12px; padding: 9px 14px; font-weight: 700; font-size: 17px; color: #E7E8EA; }
+  .phone { position: absolute; width: 250px; height: 541px; border-radius: 40px; background: #050608; padding: 9px; box-sizing: border-box;
+    box-shadow: 0 30px 60px rgba(0,0,0,.55), 0 0 0 2px #2A2F3A; }
+  .phone img { width: 100%; height: 100%; border-radius: 32px; display: block; object-fit: cover; object-position: top; }
+  .p1 { left: 668px; top: 118px; transform: rotate(-8deg); }
+  .p2 { left: 820px; top: 70px; width: 270px; height: 584px; z-index: 2; }
+  .p3 { left: 990px; top: 118px; transform: rotate(8deg); }
+  .burst { position: absolute; left: 905px; top: 610px; z-index: 3; }
+</style>
+</head>
+<body>
+<div class="card">
+  <svg class="lines" viewBox="0 0 1280 700" aria-hidden="true"><g transform="translate(955 330)" stroke="rgba(255,255,255,.05)" stroke-width="3" id="rays"></g></svg>
+  <div class="kanji">修行</div>
+  <div class="left">
+    <span class="pill"><span class="dot"></span>TELEGRAM BOT + MINI APP</span>
+    <h1><span class="me">Workout</span><br><span class="them">Crew</span></h1>
+    <div class="tag">Train every day with your brother.<br><b>Roast him when he skips.</b> 😈</div>
+    <div class="chips">
+      <span class="chip">⚔️ Live duels</span><span class="chip">💬 Crew chat</span><span class="chip">🎲 Bets</span>
+      <span class="chip">🎥 Proof clips</span><span class="chip">📈 Real progress</span><span class="chip">🔒 Self-hosted</span>
+    </div>
+  </div>
+  <div class="phone p1"><img src="../app/home.png" alt=""></div>
+  <div class="phone p2"><img src="../app/duel.png" alt=""></div>
+  <div class="phone p3"><img src="../app/chat.png" alt=""></div>
+</div>
+<script>
+  var g = document.getElementById('rays'), s = '';
+  for (var i = 0; i < 36; i++) s += '<line x1="140" y1="0" x2="1400" y2="0" transform="rotate(' + i * 10 + ')"/>';
+  g.innerHTML = s;
+</script>
+</body>
+</html>

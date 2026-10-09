@@ -1076,7 +1076,7 @@
       : tab === 'today' ? todayScreen() : tab === 'duel' ? duelScreen() : tab === 'chat' ? chatScreen()
       : tab === 'progress' ? progressScreen() : homeScreen();
     var banner = DEMO ? '<div class="demo">Demo with sample data. Open it from the bot in Telegram to see your real crew.</div>'
-      : DEV ? '<div class="demo">Dev mode · you are <b>' + h(me().name) + '</b> · switch to ' + others().map(function (o) {
+      : DEV && params.get('banner') !== '0' ? '<div class="demo">Dev mode · you are <b>' + h(me().name) + '</b> · switch to ' + others().map(function (o) {
         return '<a href="?as=' + o.id + '" style="color:var(--me)">' + h(o.name) + '</a>';
       }).join(', ') + ' · bot messages print in the terminal</div>' : '';
     var overlay = '';
@@ -1248,6 +1248,7 @@
   function openRoute(route) {
     if (TABS.indexOf(route) >= 0) tab = route;
     else if (route === 'live') openLive();
+    else if (route === 'player') setTimeout(startPlayer, 0);
     else if (['report', 'settings', 'test', 'body', 'gear', 'exercises'].indexOf(route) >= 0) screen = route;
   }
 
