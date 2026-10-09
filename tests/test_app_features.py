@@ -316,3 +316,24 @@ def test_body_photos_and_day_details_over_the_api(crew):
     ])
     assert day["status"] == "completed" and len(day["items"]) == 4
     assert empty == {"date": "2001-01-01", "status": None, "items": []}
+
+
+def test_dev_login_only_on_the_dev_server(crew):
+    async def run():
+        out = []
+        for dev_user in (None, config.USER_ID):
+            app = create_webapp(bot=AsyncMock(), bot_data={}, bot_token=TOKEN, dev_user=dev_user)
+            client = TestClient(TestServer(app))
+            await client.start_server()
+            try:
+                for extra in ({}, {"X-Dev-User": str(BRO)}, {"X-Dev-User": "999"}):
+                    resp = await client.get("/api/state", headers=extra)
+                    data = await resp.json()
+                    out.append((resp.status, data.get("me", {}).get("name")))
+            finally:
+                await client.close()
+        return out
+    results = asyncio.run(run())
+    real, dev = results[:3], results[3:]
+    assert [s for s, _ in real] == [401, 401, 401]  # the real bot never skips the Telegram check
+    assert dev == [(200, "Victor"), (200, "Andrei"), (403, None)]

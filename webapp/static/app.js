@@ -10,7 +10,9 @@
 
   var tg = window.Telegram && window.Telegram.WebApp;
   var initData = tg && tg.initData;
-  var DEMO = !initData;
+  var DEMO = false;           // set at start: no Telegram and no dev server (sample data)
+  var DEV = false;            // set at start: local dev server (python -m webapp.dev)
+  var devAs = new URLSearchParams(location.search).get('as');
 
   var app = document.getElementById('app');
   var toastEl = document.getElementById('toast');
@@ -177,7 +179,7 @@
     var mine = meCrew();
     parts.push('<header class="row between"><div class="grow"><div class="small muted">' + eyebrow + '</div>' +
       '<div class="display h1">' + h(greeting()) + ', ' + h(me().name) + '</div>' +
-      '<div class="row small" style="gap:8px;margin-top:4px"><span class="badge" style="background:var(--me)">RANK ' + h(r.letter) + '</span>' +
+      '<div class="row small" style="gap:6px 8px;margin-top:4px;flex-wrap:wrap"><span class="badge" style="background:var(--me)">RANK ' + h(r.letter) + '</span>' +
       '<span class="muted">' + r.xp + ' XP' + (r.next_at ? ' · ' + (r.next_at - r.xp) + ' to ' + h(r.next_letter) : ' · max rank') + '</span>' +
       (mine && mine.title ? '<span class="badge" style="background:#C8A2FF">' + h(mine.title) + '</span>' : '') + '</div></div>' +
       '<button class="btn icon" data-act="open-screen" data-screen="settings" aria-label="Settings">' + icon('gear', 22) + '</button></header>');
@@ -711,7 +713,10 @@
     var page = screen === 'settings' ? settingsScreen() : screen === 'exercises' ? exercisesScreen()
       : screen === 'test' ? testScreen() : screen === 'gear' ? gearScreen() : screen === 'body' ? bodyScreen()
       : tab === 'today' ? todayScreen() : tab === 'duel' ? duelScreen() : tab === 'progress' ? progressScreen() : homeScreen();
-    var demo = DEMO ? '<div class="demo">Demo with sample data. Open it from the bot in Telegram to see your real crew.</div>' : '';
+    var demo = DEMO ? '<div class="demo">Demo with sample data. Open it from the bot in Telegram to see your real crew.</div>'
+      : DEV ? '<div class="demo">Dev mode · you are <b>' + h(me().name) + '</b> · switch to ' + others().map(function (o) {
+        return '<a href="?as=' + o.id + '" style="color:var(--me)">' + h(o.name) + '</a>';
+      }).join(', ') + ' · bot messages print in the terminal</div>' : '';
     var overlay = '';
     var w = state.wake;
     var rankUp = state.me.onboarded && RANK_LETTERS.indexOf(state.me.rank.letter) > RANK_LETTERS.indexOf(state.me.seen_rank);
@@ -747,7 +752,9 @@
   // ---------------------------------------------------------------- data
 
   function authHeaders(extra) {
-    var headers = { 'Authorization': 'tma ' + initData };
+    var headers = {};
+    if (initData) headers['Authorization'] = 'tma ' + initData;
+    else if (devAs) headers['X-Dev-User'] = devAs;
     for (var k in extra || {}) headers[k] = extra[k];
     return headers;
   }
@@ -1126,5 +1133,12 @@
     };
   }
 
-  load();
+  // Outside Telegram: use the local dev server if it answers, otherwise the demo.
+  if (initData) load();
+  else {
+    fetch('/api/state', { headers: authHeaders() }).then(function (res) {
+      if (!res.ok) throw new Error('no dev server');
+      return res.json();
+    }).then(function (data) { DEV = true; setState(data); }, function () { DEMO = true; load(); });
+  }
 })();

@@ -51,6 +51,7 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 BOT_KEY = web.AppKey("bot", object)
 BOT_DATA_KEY = web.AppKey("bot_data", dict)
 TOKEN_KEY = web.AppKey("bot_token", str)
+DEV_USER_KEY = web.AppKey("dev_user", int)
 
 # Telegram loads the app in an iframe on web/desktop; everything else is ours.
 CSP = ("default-src 'self'; script-src 'self' https://telegram.org; "
@@ -72,15 +73,22 @@ async def auth_middleware(request: web.Request, handler: Callable[[web.Request],
         return response
 
     header = request.headers.get("Authorization", "")
-    if not header.startswith("tma "):
+    dev_user = request.app.get(DEV_USER_KEY)
+    if dev_user and not header.startswith("tma "):
+        # Local dev server only (webapp/dev.py); the real bot never sets DEV_USER_KEY.
+        try:
+            uid = int(request.headers.get("X-Dev-User") or dev_user)
+        except ValueError:
+            uid = dev_user
+    elif not header.startswith("tma "):
         return web.json_response({"ok": False, "message": "Open the app from Telegram."}, status=401)
-    try:
-        user = verify_init_data(header[4:], request.app[TOKEN_KEY])
-    except AuthError as e:
-        logger.warning("Mini App auth failed: %s", e)
-        return web.json_response({"ok": False, "message": "Session expired. Close and reopen the app."}, status=401)
-
-    uid = int(user["id"])
+    else:
+        try:
+            user = verify_init_data(header[4:], request.app[TOKEN_KEY])
+        except AuthError as e:
+            logger.warning("Mini App auth failed: %s", e)
+            return web.json_response({"ok": False, "message": "Session expired. Close and reopen the app."}, status=401)
+        uid = int(user["id"])
     if uid != config.USER_ID and not is_member(uid):
         logger.warning("Mini App: user %s is not in the crew", uid)
         return web.json_response({"ok": False, "message": "You're not in this crew. Ask for an invite."}, status=403)
@@ -406,12 +414,16 @@ async def handle_health(request: web.Request) -> web.Response:
     return web.json_response({"status": "healthy"})
 
 
-def create_webapp(bot=None, bot_data: Optional[dict] = None, bot_token: Optional[str] = None) -> web.Application:
+def create_webapp(bot=None, bot_data: Optional[dict] = None, bot_token: Optional[str] = None,
+                  dev_user: Optional[int] = None) -> web.Application:
+    """dev_user is for webapp/dev.py only: API calls without Telegram login act as that user."""
     # Large enough for a resized progress photo; JSON actions are tiny.
     app = web.Application(middlewares=[auth_middleware], client_max_size=body_service.MAX_PHOTO_BYTES + 1024)
     app[BOT_KEY] = bot
     app[BOT_DATA_KEY] = bot_data if bot_data is not None else {}
     app[TOKEN_KEY] = bot_token or config.BOT_TOKEN
+    if dev_user:
+        app[DEV_USER_KEY] = dev_user
     app.router.add_get("/", handle_index)
     app.router.add_get("/health", handle_health)
     app.router.add_get("/api/state", handle_state)
