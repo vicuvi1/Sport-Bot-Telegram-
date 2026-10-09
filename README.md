@@ -5,7 +5,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/telegram-bot-26A5E4?style=flat-square&logo=telegram&logoColor=white" alt="Telegram bot">
-  <img src="https://img.shields.io/badge/tests-270%20passing-22c55e?style=flat-square" alt="270 tests passing">
+  <img src="https://img.shields.io/badge/tests-291%20passing-22c55e?style=flat-square" alt="291 tests passing">
   <img src="https://img.shields.io/badge/AI-none%2C%20no%20API%20keys-0ea5e9?style=flat-square" alt="No AI, no API keys">
   <img src="https://img.shields.io/badge/license-MIT-a855f7?style=flat-square" alt="MIT license">
 </p>
@@ -34,7 +34,7 @@ Most workout apps want a subscription, an account, and your data. This one lives
 | 🎯 **It adapts to you** | Tell it a workout was *too easy* or *too hard* and your targets change. After a break it eases you back in at 70% → 85% → 100%. |
 | 🧪 **It proves you're changing** | A 10-minute fitness test on the 1st of every month: *push-ups 18 → 24 → 31*. Real numbers, not just streaks. |
 | 🤝 **It keeps you honest** | Invite a friend as your accountability partner: they get your weekly summary and can send you 👏 high-fives. |
-| 🛡 **It runs for years** | Verified backups, error reports in Telegram, an optional outside alarm if the server dies, and 270 automated tests. |
+| 🛡 **It runs for years** | Verified backups, error reports in Telegram, an optional outside alarm if the server dies, and 291 automated tests. |
 | 🔒 **It's yours** | You plus only the people you invite, a local SQLite file, no AI, no API keys, no tracking. |
 
 <p align="center">
@@ -91,6 +91,12 @@ Invite your brother (or up to 5 friends) with a single-use link. Everyone gets *
 - **☀️ Wake-up challenge (`/wake`):** at your wake time, tap the right number within 10 minutes. The crew sees *on time ✅*, *42 min late 🐢* or *slept through 😴*.
 - **🏆 Weekly points (`/points`):** workout +10, full targets +5, woke on time +5, challenge +15, test PR +20, forfeit done +5. Sunday 20:30 the winner is crowned 👑 and picks the loser's **forfeit** (50 extra push-ups, cold shower...).
 - **🎯 Challenges (`/challenge`):** *"100 push-ups today"*, *"full workout before 09:00"*... Accept or 🐔 chicken out. Resolved automatically as you log, or at 23:00.
+
+### 📱 In the Mini App
+- **Everything without the chat:** settings (reminder and wake times, pause, roast level), an exercise editor (add, remove, targets, days), tap a number to type the exact amount with **Undo**, and the monthly fitness test with a built-in timer.
+- **A live duel:** a fight log of what your crew does (react with 🔥💀😂🐔👑), write your own roasts, and **ghost pace**: *"yesterday at this time Andrei had 120 reps, you have 100"*.
+- **Anime progression:** XP and ranks from E to S with a rank-up animation, unlockable mascot gear (hair, headbands, auras), and monthly **seasons** with a champion title.
+- **Body change:** skill ladders (push-ups → diamond → archer...), weekly weight and waist trends, and **private** progress photos with then-and-now. Tap any calendar day to see what you did.
 
 ### 🤝 Stay accountable
 - **Accountability partner** (owner only): a single-use invite link (48 h). Your friend gets only what you tick: weekly summary ✅, fitness test results ✅, and optionally an alert after 3 missed workouts in a row (you're warned the morning before).
@@ -238,7 +244,7 @@ flowchart LR
 ```
 
 - **Python 3.11+**, `python-telegram-bot` 22, `APScheduler` 3, SQLite. Pinned dependencies for long-term stability.
-- **270 tests** cover crew isolation and the multi-user migration, streaks, pauses, the comeback ramp, feedback, the fitness test, partner invites, backup verification, button routing and startup. Run them with `pytest -q`.
+- **291 tests** cover crew isolation and the multi-user migration, streaks, pauses, the comeback ramp, feedback, the fitness test, partner invites, backup verification, button routing and startup. Run them with `pytest -q`.
 
 ---
 

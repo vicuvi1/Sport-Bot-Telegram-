@@ -54,7 +54,7 @@ USER_SETTING_KEYS = frozenset({
     # crew features
     "wake_time", "wake_enabled", "roast_level", "crew_feed",
     # Mini App
-    "ui_anime",
+    "ui_anime", "onboarded", "seen_rank", "gear_hair", "gear_band", "gear_aura",
 })
 
 
@@ -330,6 +330,47 @@ def init_db(db_path: Optional[Path] = None) -> None:
             );
         """)
 
+        # Crew activity log (Duel "fight log", ghost pace) and its reactions.
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS activity (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                kind TEXT NOT NULL,
+                text TEXT NOT NULL,
+                data TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                local_time TEXT NOT NULL
+            );
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS activity_reactions (
+                activity_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                emoji TEXT NOT NULL,
+                PRIMARY KEY (activity_id, user_id),
+                FOREIGN KEY (activity_id) REFERENCES activity(id) ON DELETE CASCADE
+            );
+        """)
+        # Body tracking (private: never shown to the crew).
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS body_logs (
+                user_id INTEGER NOT NULL,
+                date TEXT NOT NULL,
+                weight REAL,
+                waist REAL,
+                PRIMARY KEY (user_id, date)
+            );
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS progress_photos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                date TEXT NOT NULL,
+                filename TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+        """)
+
         # Scheduled one-off alerts (rest timers, snoozed reminders).
         # Persisted so they survive a bot restart; fire_at is a UTC ISO string.
         cursor.execute("""
@@ -427,8 +468,10 @@ def remove_user(user_id: int, db_path: Optional[Path] = None) -> None:
         conn.execute("DELETE FROM daily_workouts WHERE user_id = ?;", (user_id,))  # items cascade
         conn.execute("DELETE FROM challenges WHERE challenger = ? OR target = ?;", (user_id, user_id))
         conn.execute("DELETE FROM forfeits WHERE winner = ? OR loser = ?;", (user_id, user_id))
-        for table in ("exercises", "pauses", "fitness_results", "wake_logs", "crew_events",
-                      "user_settings", "users"):
+        conn.execute("DELETE FROM activity_reactions WHERE user_id = ? OR activity_id IN "
+                     "(SELECT id FROM activity WHERE user_id = ?);", (user_id, user_id))
+        for table in ("exercises", "pauses", "fitness_results", "wake_logs", "crew_events", "activity",
+                      "body_logs", "progress_photos", "user_settings", "users"):
             conn.execute(f"DELETE FROM {table} WHERE user_id = ?;", (user_id,))
         conn.commit()
 

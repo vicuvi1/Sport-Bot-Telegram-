@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 from pathlib import Path
 
 import config
+from services import activity_service
 from database import get_connection, get_setting, set_setting, current_user_id
 
 def get_current_date_str(tz_name: Optional[str] = None, db_path: Optional[Path] = None) -> str:
@@ -393,10 +394,18 @@ def get_or_create_daily_workout(
 # ============================================================================
 
 def _record_workout_done(cursor, workout_id: int) -> None:
-    """Crew live feed: tell the others this day was just finished (see crew_service)."""
+    """Crew live feed: tell the others this day was just finished (see crew_service).
+
+    Written through `cursor` because the caller's transaction is still open.
+    """
+    now_utc = datetime.now(ZoneInfo("UTC")).isoformat()
     cursor.execute(
         "INSERT INTO crew_events (user_id, kind, data, created_at) VALUES (?, 'workout_done', ?, ?);",
-        (current_user_id(), json.dumps({"workout_id": workout_id}), datetime.now(ZoneInfo("UTC")).isoformat())
+        (current_user_id(), json.dumps({"workout_id": workout_id}), now_utc)
+    )
+    cursor.execute(
+        "INSERT INTO activity (user_id, kind, text, data, created_at, local_time) VALUES (?, 'done', ?, '{}', ?, ?);",
+        (current_user_id(), "finished today's workout 🏁", now_utc, local_now_iso())
     )
 
 def _refresh_workout_status(cursor, workout_id: int, now_iso: str) -> None:
@@ -466,7 +475,10 @@ def update_workout_item(
         if status is None:
             if new_reps >= target:
                 new_status = "completed"
-            elif new_reps > 0 and current_item["status"] == "pending":
+            elif current_item["status"] == "skipped" and new_reps == 0:
+                new_status = "skipped"
+            else:
+                # Below target again (e.g. an undo or "−5" after Done): not done anymore.
                 new_status = "pending"
 
         cursor.execute(
@@ -481,6 +493,11 @@ def update_workout_item(
         workout_id = current_item["daily_workout_id"]
         _refresh_workout_status(cursor, workout_id, now_iso)
         conn.commit()
+
+        # Crew fight log (merged with recent taps on the same exercise).
+        day = cursor.execute("SELECT date FROM daily_workouts WHERE id = ?;", (workout_id,)).fetchone()
+        activity_service.record_progress(current_item["exercise_name"], current_item["unit"],
+                                         new_reps - current_item["completed_reps"], day["date"])
 
         # Check progression for this exercise if completed
         if new_status == "completed" and current_item["exercise_id"]:
@@ -714,6 +731,11 @@ def complete_all_exercises_for_workout(
         if before and before["status"] != "completed":
             _record_workout_done(cursor, workout_id)
         conn.commit()
+
+        day = cursor.execute("SELECT date FROM daily_workouts WHERE id = ?;", (workout_id,)).fetchone()
+        for item in items:
+            activity_service.record_progress(item["exercise_name"], item["unit"],
+                                             item["target_reps"] - item["completed_reps"], day["date"])
 
         # Check progression for all exercises
         for item in items:

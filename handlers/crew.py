@@ -254,6 +254,10 @@ async def _remove_member(context, user_id: int, removed_by_owner: bool) -> None:
         from scheduler import remove_user_jobs
         remove_user_jobs(scheduler, user_id)
     remove_user(user_id)
+    # Their private progress photos are files, not database rows.
+    import shutil
+    from services.body_service import photos_dir
+    shutil.rmtree(photos_dir(user_id), ignore_errors=True)
     if removed_by_owner:
         await cs.send_html(context.bot, user_id, "👋 You were removed from the workout crew.")
     for uid in remaining:

@@ -5,9 +5,11 @@ from typing import Any, Dict, List
 
 import config
 from database import current_user_id, get_connection, get_setting, get_users
+from services import activity_service, body_service
 from services import compete_service as cmp
 from services import crew_service as cs
 from services import fitness_test_service as fts
+from services import progression_service as prog
 from services import wake_service as ws
 from services.workout_service import (
     COMEBACK_FACTORS,
@@ -15,6 +17,7 @@ from services.workout_service import (
     calculate_streaks,
     get_active_pause,
     get_current_date_str,
+    get_exercises,
     get_or_create_daily_workout,
 )
 from views import day_codes, unit_label, week_codes
@@ -103,6 +106,62 @@ def _challenges(me: int, today: str) -> List[Dict[str, Any]]:
     return out
 
 
+def _activity(me: int) -> List[Dict[str, Any]]:
+    names = {u["user_id"]: cs.display_name(u["user_id"]) for u in get_users()}
+    out = []
+    for a in activity_service.recent(30):
+        mine = next((r["emoji"] for r in a["reactions"] if r["user_id"] == me), None)
+        counts: Dict[str, int] = {}
+        for r in a["reactions"]:
+            counts[r["emoji"]] = counts.get(r["emoji"], 0) + 1
+        out.append({"id": a["id"], "who": names.get(a["user_id"], "Someone"), "me": a["user_id"] == me,
+                    "text": a["text"], "kind": a["kind"], "at": a["created_at"],
+                    "reactions": [{"emoji": e, "count": c} for e, c in counts.items()], "my_reaction": mine})
+    return out
+
+
+def _fitness_test(today: str) -> Dict[str, Any]:
+    month = fts.current_month(today)
+    results = fts.get_month_results(month)
+    return {
+        "month": month,
+        "pullups": get_setting("test_pullups", "0") == "1",
+        "complete": fts.is_month_complete(month),
+        "tests": [{"key": t["key"], "name": t["name"], "unit": t["unit"], "how": t["how"], "timer": t["timer"],
+                   "done": t["key"] in results, "result": results.get(t["key"])} for t in fts.active_tests()],
+    }
+
+
+def _settings() -> Dict[str, Any]:
+    pause = get_active_pause()
+    return {
+        "workout_time": get_setting("workout_time", "07:00"),
+        "timezone": get_setting("timezone", config.TIMEZONE),
+        "notifications": get_setting("notifications_enabled", "1") == "1",
+        "wake_enabled": ws.wake_enabled(),
+        "wake_time": ws.wake_time(),
+        "roast_level": cs.roast_level(current_user_id()),
+        "feed": get_setting("crew_feed", "1") == "1",
+        "paused_until": pause["end_date"] if pause else None,
+    }
+
+
+def _seasons(today: str) -> Dict[str, Any]:
+    month = today[:7]
+    start, end = prog.month_bounds(month)
+    champions = []
+    for m in prog.finished_months(today, back=6):
+        champ = prog.season_champion(m)
+        if champ:
+            champions.append({"month": m, "title": prog.month_title(m), "name": cs.display_name(champ)})
+    return {
+        "month": month,
+        "standings": [{"name": cs.display_name(r["user_id"]), "points": r["points"], "color": _color_for(r["user_id"])}
+                      for r in prog.season_standings(month)],
+        "champions": champions,
+    }
+
+
 def build_state() -> Dict[str, Any]:
     me = current_user_id()
     today = get_current_date_str()
@@ -110,16 +169,25 @@ def build_state() -> Dict[str, Any]:
     start = datetime.strptime(today, "%Y-%m-%d").date()
     monday = start - timedelta(days=start.weekday())
 
+    last_season = prog.finished_months(today, back=1)[0]
+    last_champion = prog.season_champion(last_season)
+
     crew = []
     for m in get_users():
-        snap = cs.day_snapshot(m["user_id"], today)
+        uid = m["user_id"]
+        snap = cs.day_snapshot(uid, today)
         crew.append({
-            "id": m["user_id"], "name": snap["name"], "me": m["user_id"] == me,
-            "color": _color_for(m["user_id"]), "status": snap["status"], "done": snap["done"],
+            "id": uid, "name": snap["name"], "me": uid == me,
+            "color": _color_for(uid), "status": snap["status"], "done": snap["done"],
             "total": snap["total"], "reps": snap["reps"], "streak": snap["streak"],
-            "progress": round(cs.progress_ratio(snap), 3), "wake": ws.today_label(m["user_id"]),
+            "progress": round(cs.progress_ratio(snap), 3), "wake": ws.today_label(uid),
+            "rank": prog.rank_for(prog.xp(uid))["letter"],
+            "gear": prog.equipped(uid),
+            "title": prog.month_title(last_season) if last_champion == uid else None,
         })
     standings = cmp.standings(today)
+    my_rank = prog.rank_for(prog.xp(me))
+    others = [c for c in crew if not c["me"]]
 
     return {
         "me": {
@@ -128,7 +196,22 @@ def build_state() -> Dict[str, Any]:
             "anime": get_setting("ui_anime", "1") == "1",
             "roast_level": cs.roast_level(me),
             "feed": get_setting("crew_feed", "1") == "1",
+            "onboarded": get_setting("onboarded", "0") == "1",
+            "rank": my_rank,
+            "seen_rank": get_setting("seen_rank", "E"),
+            "gear": prog.equipped(me),
         },
+        "settings": _settings(),
+        "exercises": [{"id": e["id"], "name": e["name"], "target": e["target_reps"], "unit": unit_label(e["unit"]),
+                       "active": bool(e["is_active"]), "days": e["days_of_week"]} for e in get_exercises()],
+        "fitness_test": _fitness_test(today),
+        "ladders": prog.ladder_status(today),
+        "gear_catalog": prog.gear_catalog(me),
+        "body": body_service.body_summary(today) | {"photos": body_service.list_photos()},
+        "seasons": _seasons(today),
+        "activity": _activity(me),
+        "reactions": activity_service.REACTIONS,
+        "ghost": activity_service.ghost_pace(others[0]["id"], today) if others else None,
         "today": _today(today),
         "streak": streak,
         "best_streak": best,
