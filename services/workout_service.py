@@ -420,8 +420,9 @@ def _record_workout_done(cursor, workout_id: int) -> None:
         (current_user_id(), "finished today's workout 🏁", now_utc, local_now_iso())
     )
 
-def _refresh_workout_status(cursor, workout_id: int, now_iso: str) -> None:
-    """Sets the day's status from its items: completed, skipped or pending."""
+def _refresh_workout_status(cursor, workout_id: int, now_iso: str, announce: bool = True) -> None:
+    """Sets the day's status from its items: completed, skipped or pending.
+    announce=False (admin corrections) skips the crew's "just finished" feed."""
     cursor.execute("SELECT status FROM workout_items WHERE daily_workout_id = ?;", (workout_id,))
     statuses = [r["status"] for r in cursor.fetchall()]
 
@@ -434,7 +435,7 @@ def _refresh_workout_status(cursor, workout_id: int, now_iso: str) -> None:
             "WHERE id = ? AND status != 'completed';",
             (now_iso, workout_id)
         )
-        if cursor.rowcount:
+        if cursor.rowcount and announce:
             _record_workout_done(cursor, workout_id)
     elif all_done and not has_completed:
         cursor.execute(

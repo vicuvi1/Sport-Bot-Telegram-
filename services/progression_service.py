@@ -1,4 +1,4 @@
-"""Long-term progression: XP and ranks, unlockable mascot gear, monthly seasons,
+"""Long-term progression: levels and ranks (via the System), unlockable mascot gear, monthly seasons,
 and skill ladders (harder exercise versions as you get stronger).
 
 Everything is derived from logged data (points, streaks, reps, challenges),
@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 
 from database import as_user, current_user_id, get_connection, get_setting, get_users, set_setting
 from services import compete_service as cmp
+from services import leveling_service as lv
 from services.workout_service import (
     calculate_streaks,
     get_current_date_str,
@@ -19,37 +20,31 @@ from services.workout_service import (
 )
 
 # ---------------------------------------------------------------------------
-# XP and ranks
+# XP, levels and ranks (the System, see leveling_service)
 # ---------------------------------------------------------------------------
-# XP = all points ever earned (see compete_service.POINTS).
 
-RANKS = [("E", 0), ("D", 100), ("C", 300), ("B", 700), ("A", 1500), ("S", 3000)]
+RANKS = [(r[1], r[0]) for r in lv.RANKS]   # (letter, first level)
 
 
 def xp(user_id: Optional[int] = None) -> int:
-    uid = current_user_id() if user_id is None else user_id
-    return cmp.points_breakdown(uid, "0000-01-01", "9999-12-31")["total"]
+    """Total EXP (5 per weekly point ever earned + quests and Daily Quests)."""
+    return lv.total_exp(user_id)
 
 
-def rank_for(points: int) -> Dict[str, Any]:
-    current, nxt = RANKS[0], None
-    for i, (letter, need) in enumerate(RANKS):
-        if points >= need:
-            current = (letter, need)
-            nxt = RANKS[i + 1] if i + 1 < len(RANKS) else None
+def rank_for(exp: int) -> Dict[str, Any]:
+    """Level and rank for a total EXP amount."""
+    info = lv.level_info(exp)
+    rank = lv.rank_for_level(info["level"])
     return {
-        "letter": current[0],
-        "index": [r[0] for r in RANKS].index(current[0]),
-        "xp": points,
-        "floor": current[1],
-        "next_letter": nxt[0] if nxt else None,
-        "next_at": nxt[1] if nxt else None,
+        "letter": rank["letter"], "name": rank["name"], "index": rank["index"],
+        "xp": exp, "level": info["level"], "into": info["into"], "needed": info["needed"],
+        "floor": info["floor"], "next_at": info["floor"] + info["needed"],
+        "next_letter": rank["next_letter"], "next_level": rank["next_level"],
     }
 
 
 def rank_index(letter: str) -> int:
-    letters = [r[0] for r in RANKS]
-    return letters.index(letter) if letter in letters else 0
+    return lv.rank_index(letter)
 
 
 # ---------------------------------------------------------------------------
@@ -76,7 +71,7 @@ def stats(user_id: Optional[int] = None) -> Dict[str, int]:
         "challenges_won": won,
         "on_time_wakes": wakes,
         "test_records": parts["test_pr"] // cmp.POINTS["test_pr"],
-        "rank": rank_index(rank_for(parts["total"])["letter"]),
+        "rank": lv.rank_for_level(lv.level_info(lv.EXP_PER_POINT * parts["total"] + lv.ledger_exp(uid))["level"])["index"],
         "seasons_won": len(seasons_won(uid)),
     }
 

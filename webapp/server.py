@@ -8,6 +8,7 @@ API (all require "Authorization: tma <initData>", see webapp/auth.py):
   GET  /api/state   everything the screens show
   POST /api/action  {"type": ..., ...}; returns {"ok", "message", "state"}
   GET  /api/pulse   small snapshot polled every few seconds (live progress, chat)
+  GET  /api/admin   owner only: any member's day (?user=&date=)
   POST /api/photo, /api/proof   raw image/video body; GET /api/photo|proof/<id>
 """
 
@@ -21,6 +22,9 @@ from aiohttp import web
 import config
 from database import as_user, current_user_id, get_connection, get_setting, is_member, set_setting
 from services import activity_service, body_service
+from services import admin_service as admin
+from services import leveling_service as lv
+from services import quest_service as qs
 from services import social_service as social
 from services import fitness_test_service as fts
 from services import progression_service as prog
@@ -92,7 +96,7 @@ async def auth_middleware(request: web.Request, handler: Callable[[web.Request],
             logger.warning("Mini App auth failed: %s", e)
             return web.json_response({"ok": False, "message": "Session expired. Close and reopen the app."}, status=401)
         uid = int(user["id"])
-    if uid != config.USER_ID and not is_member(uid):
+    if uid != config.USER_ID and not is_member(uid) and not qs.is_moderator(uid):
         logger.warning("Mini App: user %s is not in the crew", uid)
         return web.json_response({"ok": False, "message": "You're not in this crew. Ask for an invite."}, status=403)
 
@@ -303,7 +307,112 @@ async def _act(request: web.Request, data: Dict[str, Any]) -> Optional[str]:
         return "Bet's on! 🎲" if accept else "Backed out. No points lost."
     if kind == "proof_vote":
         return social.vote_proof(_int(data, "id"), str(data.get("vote")))
+    if kind in ("admin_item", "admin_day", "admin_exercise"):
+        return await _admin_act(bot, kind, data)
+    if kind in ("admin_mod_invite", "admin_mod_remove"):
+        if current_user_id() != config.USER_ID:
+            raise web.HTTPForbidden(text="owner only")
+        if kind == "admin_mod_remove":
+            return "Moderator removed." if qs.remove_moderator(_int(data, "user")) else "Not found."
+        username = getattr(bot, "username", None)
+        if not isinstance(username, str):
+            return "The bot isn't connected (dev mode), so there's no invite link."
+        code = qs.create_mod_invite()
+        return {"message": "Invite link created.", "link": f"https://t.me/{username}?start={qs.MOD_INVITE_PREFIX}{code}"}
+    if kind in QUEST_ACTIONS:
+        return _quest_act(kind, data)
     raise web.HTTPBadRequest(text="unknown action")
+
+
+QUEST_ACTIONS = ("quest_propose", "quest_submit", "quest_review", "quest_archive", "dq_log", "dq_toggle",
+                 "stat_alloc", "title_equip", "job_change", "ack_level")
+
+
+def _text(data: Dict[str, Any], key: str) -> str:
+    return data.get(key) if isinstance(data.get(key), str) else ""
+
+
+def _quest_act(kind: str, data: Dict[str, Any]) -> Optional[str]:
+    """Quests, the Daily Quest and the Status window (crew members)."""
+    me = current_user_id()
+    if kind == "quest_propose":
+        _, error = qs.create_quest(me, _text(data, "title"), _text(data, "category"), _text(data, "rank"),
+                                   _text(data, "repeat") or "once", assignee=me)
+        return error or "Quest added. Mom approves it when you finish."
+    if kind == "quest_submit":
+        _, error = qs.submit(me, _int(data, "quest_id"), _text(data, "note"))
+        return error or "Sent to Mom for approval ⏳"
+    if kind == "quest_review":
+        _, error = qs.review(me, _int(data, "run_id"), bool(data.get("approve")), _text(data, "rank") or None,
+                             _text(data, "note"))
+        return error or ("Approved ✅" if data.get("approve") else "Sent back.")
+    if kind == "quest_archive":
+        return qs.archive_quest(me, _int(data, "quest_id")) or "Quest removed."
+    if kind == "dq_log":
+        try:
+            amount = float(data.get("amount"))
+        except (TypeError, ValueError):
+            raise web.HTTPBadRequest(text="bad amount")
+        return qs.dq_log(me, _text(data, "part"), amount)
+    if kind == "dq_toggle":
+        set_setting("dq_enabled", "0" if qs.dq_enabled(me) else "1")
+        return None
+    if kind == "stat_alloc":
+        return lv.allocate(_text(data, "stat"), int(data.get("amount") or 1))
+    if kind == "title_equip":
+        return lv.equip_title(_text(data, "id"))
+    if kind == "job_change":
+        return lv.change_job(_text(data, "id")) or "Job changed. A new path opens."
+    if kind == "ack_level":
+        set_setting("seen_level", str(lv.level_of(me)))
+        return None
+    raise web.HTTPBadRequest(text="unknown action")
+
+
+def _mod_act(data: Dict[str, Any]) -> Optional[str]:
+    """What a moderator (Mom) can do: create, review and remove quests. Nothing else."""
+    me = current_user_id()
+    kind = data.get("type")
+    if kind == "quest_create":
+        assignee = data.get("assignee")
+        try:
+            assignee = int(assignee) if assignee not in (None, "", "all") else None
+        except (TypeError, ValueError):
+            raise web.HTTPBadRequest(text="bad assignee")
+        _, error = qs.create_quest(me, _text(data, "title"), _text(data, "category"), _text(data, "rank"),
+                                   _text(data, "repeat") or "once", assignee)
+        return error or "Quest sent 📜"
+    if kind == "quest_review":
+        _, error = qs.review(me, _int(data, "run_id"), bool(data.get("approve")), _text(data, "rank") or None,
+                             _text(data, "note"))
+        return error or ("Approved ✅" if data.get("approve") else "Sent back.")
+    if kind == "quest_archive":
+        return qs.archive_quest(me, _int(data, "quest_id")) or "Quest removed."
+    raise web.HTTPForbidden(text="moderators can only manage quests")
+
+
+async def _admin_act(bot, kind: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    """Owner-only corrections to any member's workouts (see services/admin_service.py)."""
+    me = current_user_id()
+    if not admin.is_admin(me):
+        raise web.HTTPForbidden(text="admin only")
+    user = _int(data, "user")
+    reason = data.get("reason") if isinstance(data.get("reason"), str) else None
+    def num(key):
+        return None if data.get(key) in (None, "") else _int(data, key)
+    try:
+        if kind == "admin_item":
+            message = await admin.set_item(bot, me, user, _int(data, "item_id"), reps=num("reps"), target=num("target"),
+                                           mark=data.get("mark"), reason=reason)
+        elif kind == "admin_day":
+            message = await admin.set_day(bot, me, user, str(data.get("date")), str(data.get("op")), reason)
+        else:
+            message = await admin.set_exercise(bot, me, user, _int(data, "exercise_id"), target=num("target"),
+                                               toggle=bool(data.get("toggle")), reason=reason)
+        view_date = str(data.get("date")) if data.get("date") else None
+        return {"message": message, "admin": admin.admin_view(user, view_date)}
+    except admin.AdminError as e:
+        return {"message": str(e)}
 
 
 def _settings(request: web.Request, data: Dict[str, Any]) -> Optional[str]:
@@ -379,8 +488,18 @@ async def _notify_challenge(bot, challenge_id: int) -> None:
 # Routes
 # ---------------------------------------------------------------------------
 
+def _is_mod_only(uid: int) -> bool:
+    """A moderator (Mom) who isn't also training in the crew."""
+    return qs.is_moderator(uid) and uid != config.USER_ID and not is_member(uid)
+
+
+def _state() -> Dict[str, Any]:
+    uid = current_user_id()
+    return qs.moderator_state(uid) if _is_mod_only(uid) else build_state()
+
+
 async def handle_state(request: web.Request) -> web.Response:
-    return web.json_response(build_state())
+    return web.json_response(_state())
 
 
 async def handle_action(request: web.Request) -> web.Response:
@@ -390,12 +509,15 @@ async def handle_action(request: web.Request) -> web.Response:
         raise web.HTTPBadRequest(text="expected JSON")
     if not isinstance(data, dict):
         raise web.HTTPBadRequest(text="expected an object")
-    result = await _act(request, data)
+    if _is_mod_only(current_user_id()):
+        result = _mod_act(data)
+    else:
+        result = await _act(request, data)
     extra = result if isinstance(result, dict) else {"message": result}
     bot = request.app.get(BOT_KEY)
     if bot is not None:
         await cs.tick(bot)  # crew feed + challenge results, right away
-    return web.json_response({"ok": True, **extra, "state": build_state()})
+    return web.json_response({"ok": True, **extra, "state": _state()})
 
 
 async def handle_photo_upload(request: web.Request) -> web.Response:
@@ -405,8 +527,47 @@ async def handle_photo_upload(request: web.Request) -> web.Response:
     return web.json_response({**result, "state": build_state()}, status=200 if result["ok"] else 400)
 
 
+async def handle_admin(request: web.Request) -> web.Response:
+    if not admin.is_admin(current_user_id()):
+        return web.json_response({"ok": False, "message": "Admin only."}, status=403)
+    try:
+        user = int(request.query.get("user") or current_user_id())
+        return web.json_response(admin.admin_view(user, request.query.get("date") or None))
+    except (ValueError, admin.AdminError) as e:
+        return web.json_response({"ok": False, "message": str(e) if isinstance(e, admin.AdminError) else "Bad request."},
+                                 status=400)
+
+
 async def handle_pulse(request: web.Request) -> web.Response:
+    if _is_mod_only(current_user_id()):
+        return web.json_response({"sig": qs._mod_sig(), "crew": [], "unread": 0})
     return web.json_response(social.pulse())
+
+
+async def handle_quest_submit(request: web.Request) -> web.Response:
+    """Completing a quest with a photo: raw JPEG/PNG body, ?quest_id=&note=."""
+    try:
+        quest_id = int(request.query.get("quest_id", ""))
+    except ValueError:
+        raise web.HTTPBadRequest(text="bad quest_id")
+    data = await request.read()
+    _, error = qs.submit(current_user_id(), quest_id, request.query.get("note", ""), data or None)
+    bot = request.app.get(BOT_KEY)
+    if bot is not None and not error:
+        await cs.tick(bot)
+    return web.json_response({"ok": not error, "message": error or "Sent to Mom for approval ⏳", "state": _state()},
+                             status=400 if error else 200)
+
+
+async def handle_quest_proof(request: web.Request) -> web.StreamResponse:
+    try:
+        run_id = int(request.match_info["run_id"])
+    except ValueError:
+        raise web.HTTPNotFound()
+    path = qs.proof_file(current_user_id(), run_id)
+    if not path:
+        raise web.HTTPNotFound()
+    return web.FileResponse(path, headers={"Cache-Control": "private, max-age=86400"})
 
 
 async def handle_proof_upload(request: web.Request) -> web.Response:
@@ -497,6 +658,9 @@ def create_webapp(bot=None, bot_data: Optional[dict] = None, bot_token: Optional
     app.router.add_get("/api/photo/{photo_id}", handle_photo)
     app.router.add_get("/api/day", handle_day)
     app.router.add_get("/api/pulse", handle_pulse)
+    app.router.add_get("/api/admin", handle_admin)
+    app.router.add_post("/api/quest_submit", handle_quest_submit)
+    app.router.add_get("/api/quest_proof/{run_id}", handle_quest_proof)
     app.router.add_post("/api/proof", handle_proof_upload)
     app.router.add_get("/api/proof/{proof_id}", handle_proof)
     app.router.add_static("/static/", STATIC_DIR, append_version=False)

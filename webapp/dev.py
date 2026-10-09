@@ -5,7 +5,7 @@ database (data/dev.db, created and filled with a sample crew on first run) and
 never talks to Telegram: whatever the bot would send is printed here instead,
 so it can't clash with the live bot on the server.
 
-  ?as=2 in the address shows the app as the other crew member.
+  ?as=2 in the address shows the app as the other crew member, ?as=3 as Mom (quest moderator).
   --reset starts over with a fresh sample crew.
 """
 
@@ -20,7 +20,7 @@ from aiohttp import web
 import config
 
 DEV_DB = config.DATA_DIR / "dev.db"
-OWNER, BROTHER = 1, 2
+OWNER, BROTHER, MOM = 1, 2, 3
 
 # Point everything at the dev database and owner before anything uses them.
 config.DB_PATH = DEV_DB
@@ -28,7 +28,9 @@ config.USER_ID = OWNER
 
 from database import add_user, as_user, get_connection, init_db, set_setting  # noqa: E402
 from services import body_service  # noqa: E402
+from services import leveling_service as lv  # noqa: E402
 from services import progression_service as prog  # noqa: E402
+from services import quest_service as qs  # noqa: E402
 from services.social_service import send_chat  # noqa: E402
 from services.workout_service import (  # noqa: E402
     complete_all_exercises_for_workout,
@@ -79,6 +81,20 @@ def seed() -> None:
         items = get_or_create_daily_workout(today.isoformat())["items"]
         update_workout_item(items[0]["id"], delta_reps=20)
         send_chat(text="bet you can't beat me today 😏")
+    # The quest moderator (Mom) with a few quests, one waiting for her approval.
+    qs.accept_mod_invite(qs.create_mod_invite(), MOM, "Mom")
+    for title, category, rank, repeat, who in (("🧹 Clean your room", "life", "D", "weekly", None),
+                                               ("📚 Homework done", "life", "D", "daily", OWNER),
+                                               ("🏃 5 km run", "fitness", "C", "once", BROTHER)):
+        qs.create_quest(MOM, title, category, rank, repeat, assignee=who)
+    room = next(q for q in qs.quests_for(BROTHER) if "room" in q["title"])
+    qs.submit(BROTHER, room["id"], "under the bed too")
+    with get_connection() as conn:
+        conn.execute("UPDATE crew_events SET delivered = 1;")
+        conn.commit()
+    for uid in (OWNER, BROTHER):
+        with as_user(uid):
+            set_setting("seen_level", str(lv.level_of(uid)))
 
 
 def main() -> None:
@@ -95,7 +111,7 @@ def main() -> None:
         DEV_DB.unlink()
     if not DEV_DB.exists():
         seed()
-        print("Created data/dev.db with a sample crew (Victor = 1, Andrei = 2).")
+        print("Created data/dev.db with a sample crew (Victor = 1, Andrei = 2) and Mom = 3 (quest moderator).")
     init_db()
 
     app = create_webapp(bot=PrintBot(), bot_data={}, bot_token="dev", dev_user=OWNER)
