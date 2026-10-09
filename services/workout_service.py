@@ -1,6 +1,7 @@
 from datetime import datetime, date, timedelta
 from typing import Optional, List, Dict, Any, Tuple
 import json
+import logging
 import math
 from zoneinfo import ZoneInfo
 from pathlib import Path
@@ -8,6 +9,8 @@ from pathlib import Path
 import config
 from services import activity_service
 from database import get_connection, get_setting, set_setting, current_user_id
+
+logger = logging.getLogger(__name__)
 
 def get_current_date_str(tz_name: Optional[str] = None, db_path: Optional[Path] = None) -> str:
     """Returns today's date string (YYYY-MM-DD) in the user's timezone."""
@@ -393,6 +396,15 @@ def get_or_create_daily_workout(
 # EXERCISE COMPLETION & UPDATES
 # ============================================================================
 
+def _check_overtake(gained: int, date_str: str) -> None:
+    """Crew overtake alert; never lets a problem there break logging a workout."""
+    try:
+        from services.social_service import check_overtake
+        check_overtake(gained, date_str)
+    except Exception as e:
+        logger.warning("Overtake check failed: %s", e)
+
+
 def _record_workout_done(cursor, workout_id: int) -> None:
     """Crew live feed: tell the others this day was just finished (see crew_service).
 
@@ -498,6 +510,8 @@ def update_workout_item(
         day = cursor.execute("SELECT date FROM daily_workouts WHERE id = ?;", (workout_id,)).fetchone()
         activity_service.record_progress(current_item["exercise_name"], current_item["unit"],
                                          new_reps - current_item["completed_reps"], day["date"])
+        if current_item["unit"] == "reps":
+            _check_overtake(new_reps - current_item["completed_reps"], day["date"])
 
         # Check progression for this exercise if completed
         if new_status == "completed" and current_item["exercise_id"]:
@@ -736,6 +750,8 @@ def complete_all_exercises_for_workout(
         for item in items:
             activity_service.record_progress(item["exercise_name"], item["unit"],
                                              item["target_reps"] - item["completed_reps"], day["date"])
+        _check_overtake(sum(max(0, it["target_reps"] - it["completed_reps"]) for it in items if it["unit"] == "reps"),
+                        day["date"])
 
         # Check progression for all exercises
         for item in items:

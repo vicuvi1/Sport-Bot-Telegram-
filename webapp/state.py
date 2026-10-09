@@ -10,6 +10,7 @@ from services import compete_service as cmp
 from services import crew_service as cs
 from services import fitness_test_service as fts
 from services import progression_service as prog
+from services import social_service as social
 from services import wake_service as ws
 from services.workout_service import (
     COMEBACK_FACTORS,
@@ -180,12 +181,14 @@ def build_state() -> Dict[str, Any]:
             "id": uid, "name": snap["name"], "me": uid == me,
             "color": _color_for(uid), "status": snap["status"], "done": snap["done"],
             "total": snap["total"], "reps": snap["reps"], "streak": snap["streak"],
-            "progress": round(cs.progress_ratio(snap), 3), "wake": ws.today_label(uid),
+            "progress": social.fine_progress(snap["items"], snap["status"]), "wake": ws.today_label(uid),
+            "live": social.is_live(uid), "rest_left": social.rest_left(uid),
             "rank": prog.rank_for(prog.xp(uid))["letter"],
             "gear": prog.equipped(uid),
             "title": prog.month_title(last_season) if last_champion == uid else None,
         })
     standings = cmp.standings(today)
+    pulse = social.pulse()
     my_rank = prog.rank_for(prog.xp(me))
     others = [c for c in crew if not c["me"]]
 
@@ -233,4 +236,13 @@ def build_state() -> Dict[str, Any]:
             "mine_to_do": f["loser"] == me and f["status"] == "pending",
         } for f in cmp.open_forfeits()],
         "feedback_options": [{"key": k, "label": v} for k, v in FEEDBACK_LABELS.items()],
+        "sig": pulse["sig"],
+        "chat": social.chat_messages(60),
+        "unread": pulse["unread"],
+        "stickers": social.STICKERS,
+        "quick_replies": social.QUICK_REPLIES,
+        "bets": social.bets_for(me, today),
+        "bet_kinds": [{"key": k, "label": v} for k, v in social.BET_KINDS.items()],
+        "stakes": list(social.STAKES),
+        "report": {"last": social.report_card(me, last_season), "current": social.report_card(me, today[:7])},
     }
