@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 
 import config
 from database import current_user_id, get_connection, get_setting
+from services import activity_service
 from services import crew_service as cs
 from services.workout_service import get_current_date_str, is_date_paused
 
@@ -103,6 +104,8 @@ def answer(date_str: str, choice: int, now: Optional[datetime] = None) -> Dict[s
     log = get_log(date_str)
     cs.record_event("wake", {"status": status, "time": now.strftime("%H:%M"),
                              "target": log["target"], "minutes_late": late})
+    activity_service.record("wake", f"woke up at {now:%H:%M} ✅" if status == "on_time"
+                            else f"woke up at {now:%H:%M}, {late} min late 🐢")
     return {"result": status, "log": log}
 
 
@@ -117,6 +120,7 @@ def close_check(date_str: Optional[str] = None) -> bool:
                      (current_user_id(), date_str))
         conn.commit()
     cs.record_event("wake", {"status": "missed", "target": log["target"]})
+    activity_service.record("wake", f"slept through the {log['target']} wake-up 😴")
     return True
 
 

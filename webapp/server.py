@@ -10,17 +10,28 @@ API (all require "Authorization: tma <initData>", see webapp/auth.py):
 """
 
 import logging
+import re
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, Optional
 
 from aiohttp import web
 
 import config
-from database import as_user, current_user_id, is_member, set_setting
+from database import as_user, current_user_id, get_connection, get_setting, is_member, set_setting
+from services import activity_service, body_service
+from services import fitness_test_service as fts
+from services import progression_service as prog
 from services import compete_service as cmp
 from services import crew_service as cs
 from services import wake_service as ws
 from services.workout_service import (
+    MAX_PAUSE_DAYS,
+    add_exercise,
+    delete_exercise,
+    resume_from_pause,
+    start_pause,
+    toggle_exercise_active,
+    update_exercise,
     complete_all_exercises_for_workout,
     get_current_date_str,
     get_or_create_daily_workout,
@@ -44,7 +55,7 @@ TOKEN_KEY = web.AppKey("bot_token", str)
 # Telegram loads the app in an iframe on web/desktop; everything else is ours.
 CSP = ("default-src 'self'; script-src 'self' https://telegram.org; "
        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; "
-       "img-src 'self' data:; connect-src 'self'; "
+       "img-src 'self' data: blob:; connect-src 'self'; "
        "frame-ancestors https://web.telegram.org https://*.telegram.org")
 
 
@@ -109,18 +120,18 @@ async def _act(request: web.Request, data: Dict[str, Any]) -> Optional[str]:
         return "Workouts are paused. Resume from the bot's /pause menu."
 
     if kind == "item_delta":
-        item, prog = update_workout_item(_int(data, "item_id"), delta_reps=max(-100, min(100, _int(data, "delta"))))
-        return _progression(prog) if item else "That exercise isn't yours."
+        item, level_up = update_workout_item(_int(data, "item_id"), delta_reps=max(-100, min(100, _int(data, "delta"))))
+        return _progression(level_up) if item else "That exercise isn't yours."
     if kind == "item_set":
-        item, prog = update_workout_item(_int(data, "item_id"), completed_reps=max(0, min(5000, _int(data, "value"))))
-        return _progression(prog) if item else "That exercise isn't yours."
+        item, level_up = update_workout_item(_int(data, "item_id"), completed_reps=max(0, min(5000, _int(data, "value"))))
+        return _progression(level_up) if item else "That exercise isn't yours."
     if kind == "item_done":
         item_id = _int(data, "item_id")
         target = next((it["target_reps"] for it in _today_workout()["items"] if it["id"] == item_id), None)
         if target is None:
             return "That exercise isn't part of today."
-        _, prog = update_workout_item(item_id, completed_reps=target)
-        return _progression(prog)
+        _, level_up = update_workout_item(item_id, completed_reps=target)
+        return _progression(level_up)
     if kind == "item_skip":
         update_workout_item(_int(data, "item_id"), status="skipped")
         return None
@@ -139,7 +150,8 @@ async def _act(request: web.Request, data: Dict[str, Any]) -> Optional[str]:
     if kind in ("roast", "hype"):
         target = _int(data, "target")
         if kind == "roast":
-            result = await cs.send_roast(bot, request.app[BOT_DATA_KEY], current_user_id(), target)
+            result = await cs.send_roast(bot, request.app[BOT_DATA_KEY], current_user_id(), target,
+                                         custom_text=data.get("text") if isinstance(data.get("text"), str) else None)
         else:
             result = await cs.send_hype(bot, current_user_id(), target)
         return result["message"]
@@ -174,10 +186,131 @@ async def _act(request: web.Request, data: Dict[str, Any]) -> Optional[str]:
                            f"{esc(forfeit['task'])}")
         return f"Forfeit done. +{cmp.POINTS['forfeit']} pts"
     if kind == "settings":
-        if "anime" in data:
-            set_setting("ui_anime", "1" if data["anime"] else "0")
+        return _settings(request, data)
+    if kind == "items_set":  # undo: put items back to earlier values
+        values = data.get("values")
+        if not isinstance(values, dict) or len(values) > 20:
+            raise web.HTTPBadRequest(text="bad values")
+        for item_id, value in values.items():
+            update_workout_item(int(item_id), completed_reps=max(0, min(5000, int(value))))
+        return "Undone."
+    if kind == "pause":
+        days = _int(data, "days")
+        if not 1 <= days <= MAX_PAUSE_DAYS:
+            return f"Pause for 1 to {MAX_PAUSE_DAYS} days."
+        pause = start_pause(days)
+        return f"Paused until {pause['end_date']}. Your streak is safe."
+    if kind == "resume":
+        return "Welcome back! Reminders are on again." if resume_from_pause() else "You weren't paused."
+    if kind == "ex_add":
+        try:
+            add_exercise(str(data.get("name", "")), max(1, min(5000, _int(data, "target"))),
+                         "sec" if data.get("unit") in ("s", "sec") else "reps")
+        except Exception:
+            return "Couldn't add it. Maybe you already have an exercise with that name?"
+        return "Exercise added. It starts from your next workout."
+    if kind == "ex_target":
+        update_exercise(_int(data, "id"), target_reps=max(1, min(5000, _int(data, "target"))))
         return None
+    if kind == "ex_toggle":
+        toggle_exercise_active(_int(data, "id"))
+        return None
+    if kind == "ex_delete":
+        return "Exercise removed." if delete_exercise(_int(data, "id")) else "Not found."
+    if kind == "ex_days":
+        days = str(data.get("days", ""))
+        if not days or not all(d in "0123456" for d in days.split(",")):
+            return "Pick at least one day."
+        update_exercise(_int(data, "id"), days_of_week=",".join(sorted(set(days.split(",")))))
+        return None
+    if kind == "fitness_save":
+        return _fitness_save(data)
+    if kind == "fitness_pullups":
+        set_setting("test_pullups", "1" if data.get("on") else "0")
+        return None
+    if kind == "equip":
+        return None if prog.equip(str(data.get("slot")), str(data.get("id"))) else "Not unlocked yet."
+    if kind == "onboard":
+        if str(data.get("hair")) in ("lime", "orange", "blue", "pink"):
+            prog.equip("hair", str(data["hair"]))
+        set_setting("onboarded", "1")
+        set_setting("seen_rank", prog.rank_for(prog.xp())["letter"])
+        return "Welcome to the crew! Let's train."
+    if kind == "ack_rank":
+        letter = prog.rank_for(prog.xp())["letter"]
+        if prog.rank_index(letter) > prog.rank_index(get_setting("seen_rank", "E")):
+            activity_service.record("rank", f"reached rank {letter} 🎖")
+        set_setting("seen_rank", letter)
+        return None
+    if kind == "react":
+        return None if activity_service.react(_int(data, "activity_id"), str(data.get("emoji"))) else "Can't react to that."
+    if kind == "level_up":
+        result = prog.level_up(_int(data, "exercise_id"))
+        if not result:
+            return "Not unlocked yet. Keep hitting your target!"
+        return f"Level up! {result['old']} → {result['new']} (target {result['target']})."
+    if kind == "body_log":
+        def num(key):
+            try:
+                return float(data[key]) if data.get(key) not in (None, "") else None
+            except (TypeError, ValueError):
+                raise web.HTTPBadRequest(text=f"bad {key}")
+        error = body_service.log_body(num("weight"), num("waist"))
+        return error or "Saved. Only you can see this."
+    if kind == "photo_delete":
+        return "Photo deleted." if body_service.delete_photo(_int(data, "id")) else "Not found."
     raise web.HTTPBadRequest(text="unknown action")
+
+
+def _settings(request: web.Request, data: Dict[str, Any]) -> Optional[str]:
+    reschedule = False
+    for key in ("workout_time", "wake_time"):
+        if key in data:
+            value = str(data[key])
+            if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", value):
+                return "Use a time like 07:30."
+            set_setting(key, value)
+            reschedule = True
+    if "wake_enabled" in data:
+        set_setting("wake_enabled", "1" if data["wake_enabled"] else "0")
+        reschedule = True
+    if "roast_level" in data:
+        if data["roast_level"] not in cs.ROAST_LEVELS:
+            return "Unknown roast level."
+        set_setting("roast_level", data["roast_level"])
+    flags = {"anime": "ui_anime", "feed": "crew_feed", "notifications": "notifications_enabled"}
+    for key, setting in flags.items():
+        if key in data:
+            set_setting(setting, "1" if data[key] else "0")
+    scheduler = request.app[BOT_DATA_KEY].get("scheduler")
+    if reschedule and scheduler is not None:
+        from scheduler import reschedule_user_jobs
+        reschedule_user_jobs(scheduler, request.app.get(BOT_KEY), current_user_id())
+    return "Saved." if reschedule else None
+
+
+def _fitness_save(data: Dict[str, Any]) -> Dict[str, Any]:
+    key = str(data.get("key"))
+    test = fts.TESTS_BY_KEY.get(key)
+    if not test:
+        raise web.HTTPBadRequest(text="unknown test")
+    value = data.get("value")
+    month = fts.current_month()
+    if value is None:
+        fts.save_result(month, key, None)
+        return {"message": "Skipped."}
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        raise web.HTTPBadRequest(text="bad value")
+    if not 0 <= value <= fts.MAX_RESULT.get(test["unit"], 2000):
+        return {"message": "That number looks wrong."}
+    earlier = [v for m, v in fts.get_history(key) if m < month]
+    fts.save_result(month, key, value)
+    if earlier and value > max(earlier):
+        activity_service.record("record", f"new {test['name'].lower()} record: {value} {test['unit']} 🏅")
+        return {"message": f"🏅 New record! {value} {test['unit']}", "pr": True}
+    return {"message": f"Saved: {value} {test['unit']}"}
 
 
 def _progression(prog: Optional[Dict[str, Any]]) -> Optional[str]:
@@ -213,11 +346,49 @@ async def handle_action(request: web.Request) -> web.Response:
         raise web.HTTPBadRequest(text="expected JSON")
     if not isinstance(data, dict):
         raise web.HTTPBadRequest(text="expected an object")
-    message = await _act(request, data)
+    result = await _act(request, data)
+    extra = result if isinstance(result, dict) else {"message": result}
     bot = request.app.get(BOT_KEY)
     if bot is not None:
         await cs.tick(bot)  # crew feed + challenge results, right away
-    return web.json_response({"ok": True, "message": message, "state": build_state()})
+    return web.json_response({"ok": True, **extra, "state": build_state()})
+
+
+async def handle_photo_upload(request: web.Request) -> web.Response:
+    """Raw JPEG/PNG body (the app resizes it first). Private to the uploader."""
+    data = await request.read()
+    result = body_service.save_photo(data)
+    return web.json_response({**result, "state": build_state()}, status=200 if result["ok"] else 400)
+
+
+async def handle_photo(request: web.Request) -> web.StreamResponse:
+    try:
+        photo_id = int(request.match_info["photo_id"])
+    except ValueError:
+        raise web.HTTPNotFound()
+    path = body_service.photo_file(photo_id)
+    if not path:
+        raise web.HTTPNotFound()
+    response = web.FileResponse(path)
+    response.headers["Cache-Control"] = "private, max-age=86400"
+    return response
+
+
+async def handle_day(request: web.Request) -> web.Response:
+    """What the current user did on one day (existing days only; nothing is created)."""
+    date = request.query.get("date", "")
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+        raise web.HTTPBadRequest(text="bad date")
+    with get_connection() as conn:
+        day = conn.execute("SELECT id, status, feedback, quick FROM daily_workouts WHERE user_id = ? AND date = ?;",
+                           (current_user_id(), date)).fetchone()
+        items = conn.execute("SELECT exercise_name, completed_reps, target_reps, unit, status FROM workout_items "
+                             "WHERE daily_workout_id = ? ORDER BY id;", (day["id"],)).fetchall() if day else []
+    return web.json_response({
+        "date": date, "status": day["status"] if day else None,
+        "items": [{"name": i["exercise_name"], "done": i["completed_reps"], "target": i["target_reps"],
+                   "unit": "s" if i["unit"] == "sec" else i["unit"], "status": i["status"]} for i in items],
+    })
 
 
 def _asset_version() -> str:
@@ -236,7 +407,8 @@ async def handle_health(request: web.Request) -> web.Response:
 
 
 def create_webapp(bot=None, bot_data: Optional[dict] = None, bot_token: Optional[str] = None) -> web.Application:
-    app = web.Application(middlewares=[auth_middleware], client_max_size=64 * 1024)
+    # Large enough for a resized progress photo; JSON actions are tiny.
+    app = web.Application(middlewares=[auth_middleware], client_max_size=body_service.MAX_PHOTO_BYTES + 1024)
     app[BOT_KEY] = bot
     app[BOT_DATA_KEY] = bot_data if bot_data is not None else {}
     app[TOKEN_KEY] = bot_token or config.BOT_TOKEN
@@ -244,6 +416,9 @@ def create_webapp(bot=None, bot_data: Optional[dict] = None, bot_token: Optional
     app.router.add_get("/health", handle_health)
     app.router.add_get("/api/state", handle_state)
     app.router.add_post("/api/action", handle_action)
+    app.router.add_post("/api/photo", handle_photo_upload)
+    app.router.add_get("/api/photo/{photo_id}", handle_photo)
+    app.router.add_get("/api/day", handle_day)
     app.router.add_static("/static/", STATIC_DIR, append_version=False)
     return app
 

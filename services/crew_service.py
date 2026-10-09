@@ -26,6 +26,7 @@ from database import (
     set_setting,
     set_user_name,
 )
+from services import activity_service
 from services.workout_service import (
     calculate_streaks,
     get_current_date_str,
@@ -408,7 +409,8 @@ def roast_level(user_id: int) -> str:
     return level if level in ROAST_LEVELS else "savage"
 
 
-async def send_roast(bot, bot_data: Dict[str, Any], sender: int, target: int) -> Dict[str, Any]:
+async def send_roast(bot, bot_data: Dict[str, Any], sender: int, target: int,
+                     custom_text: Optional[str] = None) -> Dict[str, Any]:
     """Roasts `target` from `sender` (bot buttons and the app share this).
 
     Returns {"sent": bool, "message": text for the sender, "alert": show it prominently}.
@@ -433,11 +435,14 @@ async def send_roast(bot, bot_data: Dict[str, Any], sender: int, target: int) ->
         return {"sent": False, "message": f"Easy 😅 That's {ROASTS_PER_DAY} roasts today.", "alert": True}
 
     ahead = progress_ratio(mine) > progress_ratio(theirs)
-    line = pick_roast(level, me=target_name, them=mine["name"], their_reps=mine["reps"], sender_ahead=ahead)
+    custom = sanitize_label(custom_text or "", max_length=140).strip() if custom_text else ""
+    line = custom or pick_roast(level, me=target_name, them=mine["name"], their_reps=mine["reps"], sender_ahead=ahead)
     sent = await send_html(
         bot, target, f"😈 <b>Roast from {esc(mine['name'])}</b>\n\n{esc(line)}",
         [[InlineKeyboardButton(f"😈 Roast {mine['name']} back", callback_data=f"crew_roast:{sender}")],
          [InlineKeyboardButton("🏋️ My workout", callback_data="refresh_today")]])
+    if sent:
+        activity_service.record("roast", f"roasted {target_name} 😈: {line}", {"target": target}, user_id=sender)
     return {"sent": sent, "alert": False,
             "message": f"😈 Roast delivered to {target_name}" if sent else "Couldn't reach them right now."}
 
@@ -453,6 +458,8 @@ async def send_hype(bot, sender: int, target: int) -> Dict[str, Any]:
     line = pick_line(HYPES, me=display_name(target), them=my_name)
     sent = await send_html(bot, target, esc(line),
                            [[InlineKeyboardButton(f"💪 Hype {my_name} back", callback_data=f"crew_hype:{sender}")]])
+    if sent:
+        activity_service.record("hype", f"hyped {display_name(target)} 💪", {"target": target}, user_id=sender)
     return {"sent": sent, "alert": False,
             "message": f"💪 Hype sent to {display_name(target)}" if sent else "Couldn't reach them right now."}
 

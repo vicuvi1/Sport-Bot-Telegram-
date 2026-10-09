@@ -22,7 +22,7 @@ from database import (
     delete_scheduled_alert,
 )
 from monitoring import health, ping_healthcheck
-from services import compete_service, crew_service, fitness_test_service, partner_service, wake_service
+from services import compete_service, crew_service, fitness_test_service, partner_service, progression_service, wake_service
 from services.summary_service import build_weekly_summary
 from views import HTML, build_evening_nudge, build_today_workout_view, esc, quick_toggle_button
 
@@ -447,6 +447,10 @@ def schedule_global_jobs(scheduler: AsyncIOScheduler, bot: Bot) -> None:
                       replace_existing=True)
     scheduler.add_job(run_as, trigger=CronTrigger(day_of_week="mon", hour=12, minute=0, timezone=tz),
                       id="crew_forfeit_autopick", args=[owner, compete_service.auto_pick_forfeits, bot],
+                      replace_existing=True)
+    # Monthly season: champion announced on the 1st.
+    scheduler.add_job(run_as, trigger=CronTrigger(day=1, hour=9, minute=0, timezone=tz),
+                      id="crew_season_results", args=[owner, progression_service.send_season_results, bot],
                       replace_existing=True)
     # External heartbeat every 5 minutes (only with HEALTHCHECK_URL).
     if config.HEALTHCHECK_URL:

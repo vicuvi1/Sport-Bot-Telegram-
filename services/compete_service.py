@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from database import as_user, current_user_id, get_connection, get_users
+from services import activity_service
 from services import crew_service as cs
 from services.summary_service import week_bounds
 from services.workout_service import get_current_date_str, get_or_create_daily_workout
@@ -156,6 +157,7 @@ def complete_forfeit(forfeit_id: int, by_user: int) -> Optional[Dict[str, Any]]:
     f = get_forfeit(forfeit_id)
     if not f or f["status"] != "pending" or by_user != f["loser"]:
         return None
+    activity_service.record("forfeit", f"did the forfeit: {f['task']} 😬", user_id=by_user)
     with get_connection() as conn:
         conn.execute("UPDATE forfeits SET status = 'done', done_at = ? WHERE id = ?;",
                      (get_current_date_str() + "T" + datetime.now().strftime("%H:%M"), forfeit_id))
@@ -203,6 +205,9 @@ def respond_challenge(challenge_id: int, by_user: int, accept: bool) -> Optional
     c = get_challenge(challenge_id)
     if not c or c["status"] != "offered" or by_user != c["target"] or c["date"] != get_current_date_str():
         return None
+    label = CHALLENGES[c["kind"]]["label"]
+    activity_service.record("challenge", f"accepted: {label} ⚔️" if accept else f"chickened out of: {label} 🐔",
+                            user_id=by_user)
     return _set_challenge_status(challenge_id, "accepted" if accept else "declined")
 
 
@@ -234,6 +239,8 @@ async def check_challenges(bot) -> int:
             continue
         _set_challenge_status(c["id"], "won")
         won += 1
+        activity_service.record("challenge", f"beat the challenge: {CHALLENGES[c['kind']]['label']} 🏆",
+                                user_id=c["target"])
         label = CHALLENGES[c["kind"]]["label"]
         target_name, challenger_name = esc(cs.display_name(c["target"])), esc(cs.display_name(c["challenger"]))
         await cs.send_html(bot, c["target"], f"🏆 <b>Challenge won!</b> {label}. +{POINTS['challenge']} pts 💪")
@@ -261,6 +268,7 @@ async def close_challenges(bot) -> None:
             _set_challenge_status(c["id"], "expired")
             continue
         _set_challenge_status(c["id"], "lost")
+        activity_service.record("challenge", f"failed the challenge: {CHALLENGES[c['kind']]['label']} 😬", user_id=me)
         await cs.send_html(bot, me, f"😬 <b>Challenge lost:</b> {label}. "
                                     f"{esc(cs.display_name(c['challenger']))} gets +{POINTS['challenge']} pts.")
         await cs.send_html(bot, c["challenger"],
