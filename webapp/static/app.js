@@ -22,7 +22,7 @@
   var toastEl = document.getElementById('toast');
   var ptr = document.getElementById('ptr');
 
-  var TABS = ['home', 'today', 'duel', 'chat', 'progress'];
+  var TABS = ['home', 'today', 'quests', 'duel', 'chat', 'progress'];
   var state = null;
   var pulseData = null;
   var tab = 'home';
@@ -46,6 +46,7 @@
   var chatNewFrom = 0;         // messages after this id slide in
   var pendingReload = false;
   var reportWhich = 'last';
+  var levelUpShown = false;
   var player = null;
   var wakeLock = null;
 
@@ -166,6 +167,7 @@
     duel: '<path d="M4 20L14 10M10 4l10 10M20 20L10 10M14 4L4 14"/>',
     chat: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 21l1.9-5.4A8 8 0 1 1 21 12z"/>',
     progress: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+    quests: '<path d="M12 2l8 10-8 10-8-10z"/><path d="M12 8v4M12 15.5v.5"/>',
     flame: '<path d="M12 2c1 4 5 5 5 10a5 5 0 0 1-10 0c0-3 2-4 2-7 1 1 2 2 3 4"/>',
     sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
     gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
@@ -246,8 +248,9 @@
       : h(niceDate(t.date));
     parts.push('<header class="row between"><div class="grow"><div class="small muted">' + eyebrow + '</div>' +
       '<div class="display h1">' + h(greeting()) + ', ' + h(me().name) + '</div>' +
-      '<div class="row small" style="gap:6px 8px;margin-top:4px;flex-wrap:wrap"><span class="badge" style="background:var(--me)">RANK ' + h(r.letter) + '</span>' +
-      '<span class="muted">' + r.xp + ' XP' + (r.next_at ? ' · ' + (r.next_at - r.xp) + ' to ' + h(r.next_letter) : ' · max rank') + '</span>' +
+      '<div class="row small" style="gap:6px 8px;margin-top:4px;flex-wrap:wrap"><span class="badge sys-badge">LV ' + state.system.level + '</span>' +
+      '<span class="badge" style="background:' + RANK_COLORS[r.letter] + '">' + h(state.system.rank.name.toUpperCase()) + '</span>' +
+      '<span class="muted">' + state.system.into + '/' + state.system.needed + ' EXP</span>' +
       (mine && mine.title ? '<span class="badge" style="background:#C8A2FF">' + h(mine.title) + '</span>' : '') + '</div></div>' +
       '<div class="row" style="gap:8px">' + (me().is_owner ? '<button class="btn icon" data-act="open-screen" data-screen="admin" aria-label="Admin">🛠</button>' : '') +
       '<button class="btn icon" data-act="open-screen" data-screen="settings" aria-label="Settings">' + icon('gear', 22) + '</button></div></header>');
@@ -283,6 +286,14 @@
       (t.status === 'pending' ? '<button class="btn primary" data-act="start-player">' + icon('play', 16) + ' Start workout</button>' : '') +
       '</div></section>');
 
+    var dq = state.daily_quest;
+    if (dq.enabled) {
+      var cleared = dq.parts.filter(function (p) { return p.done >= p.target; }).length;
+      parts.push('<button class="sys-window sys-mini' + (dq.penalty ? ' penalty' : dq.complete ? ' done' : '') + '" data-act="tab" data-tab="quests">' +
+        '<span class="sys-icon">!</span><span class="grow"><b>' + (dq.penalty ? 'PENALTY QUEST' : 'DAILY QUEST') + '</b><br><span class="sys-label">' +
+        (dq.penalty ? h(dq.penalty.title) : dq.complete ? 'Cleared ✔' : cleared + ' of ' + dq.parts.length + ' goals · +' + dq.reward_exp + ' EXP') +
+        '</span></span><span class="sys-hl">›</span></button>');
+    }
     parts.push('<section class="card"><div class="small muted">This week</div>' + dayGrid(state.week) + '</section>');
     parts.push(answerCards(true));
 
@@ -432,7 +443,7 @@
         : p.status === 'completed' ? 'cheer' : /late|😴|⏰/.test(m.wake || '') ? 'sleepy' : hp < 0.3 ? 'sulk' : 'smirk';
       return '<div class="fighter ' + side + '" data-fighter="' + m.id + '"><div class="mascot-wrap">' +
         mascot(m.gear, mood, 92, m.name + '\'s fighter', { mine: side === 'mine', sweat: p.progress >= 0.7 && p.status !== 'completed' }) + '</div>' +
-        '<b>' + h(m.me ? 'You' : m.name) + ' <span class="badge" style="background:' + h(m.gear.hair || m.color) + '">' + h(m.rank) + '</span>' +
+        '<b>' + h(m.me ? 'You' : m.name) + ' <span class="badge" style="background:' + h(m.gear.hair || m.color) + '">LV ' + (m.level || 1) + '</span>' +
         (p.live ? ' <span class="live-dot"></span>' : '') + '</b>' +
         '<span class="small muted" style="font-style:italic">' + h(title(m)) + '</span>' +
         '<div class="hp"><div class="row between small muted" style="font-size:11px"><span>HP</span><span>' + Math.round(hp * 100) + '</span></div>' +
@@ -666,11 +677,11 @@
     var r = me().rank;
     var parts = ['<header class="display h1">Progress</header>'];
 
-    var span = r.next_at ? (r.xp - r.floor) / (r.next_at - r.floor) : 1;
+    var sy = state.system;
     parts.push('<button class="card tap row" style="gap:14px" data-act="open-screen" data-screen="gear">' +
       mascot(me().gear, 'determined', 64, 'Your fighter', { mine: true }) + '<div class="grow" style="display:flex;flex-direction:column;gap:6px">' +
-      '<div class="row between"><span class="display h2">Rank ' + h(r.letter) + '</span><span class="small muted">' + count(r.xp, ' XP') + '</span></div>' +
-      bar(span, null, 'xp') + '<span class="small muted">' + (r.next_at ? (r.next_at - r.xp) + ' XP to rank ' + h(r.next_letter) : 'Maximum rank. Legend.') + ' · Gear ›</span></div></button>');
+      '<div class="row between"><span class="display h2">Level ' + sy.level + ' · ' + h(r.letter === 'N' ? 'National' : r.letter + '-Rank') + '</span><span class="small muted">' + count(r.xp, ' EXP') + '</span></div>' +
+      bar(sy.needed ? sy.into / sy.needed : 1, '#4FC3F7', 'xp') + '<span class="small muted">' + (sy.needed - sy.into) + ' EXP to level ' + (sy.level + 1) + ' · Gear ›</span></div></button>');
 
     var rep = state.report.last.planned ? state.report.last : state.report.current;
     parts.push('<button class="card tap row" data-act="open-screen" data-screen="report"><span style="font-size:30px">📊</span><div class="grow">' +
@@ -759,6 +770,7 @@
           }).join('') + '</div>') + '</section>');
     parts.push('<section class="card"><div class="row between"><span>Anime style</span>' + toggle(anime(), 'toggle-anime', 'Anime style') + '</div>' +
       '<div class="row between"><span>Sounds</span>' + toggle(FX.soundOn(), 'toggle-sound', 'Sounds') + '</div>' +
+      '<div class="row between"><span>Daily Quest and penalties</span>' + toggle(state.daily_quest.enabled, 'dq-toggle', 'Daily Quest') + '</div>' +
       '<button class="btn outline" data-act="open-screen" data-screen="exercises">Edit exercises</button>' +
       '<button class="btn outline" data-act="open-screen" data-screen="gear">Customize your fighter</button></section>');
     if (me().is_owner) parts.push('<button class="card tap row" data-act="open-screen" data-screen="admin"><span style="font-size:26px">🛠</span>' +
@@ -1011,6 +1023,10 @@
           toggle(e.active, 'admin-ex-toggle', 'Active: ' + e.name, ' data-id="' + e.id + '"') + '</div>';
       }).join('') + '</section>');
 
+    parts.push('<section class="card"><b>👩‍⚖️ Quest moderators</b>' + (state.moderators.length ? state.moderators.map(function (m) {
+      return '<div class="row between"><span>' + h(m.name) + '</span><button class="btn outline" style="height:34px" data-act="mod-remove" data-id="' + m.id + '">Remove</button></div>';
+    }).join('') : '<span class="small muted">Nobody yet: you approve quests for now.</span>') +
+      '<button class="btn done" data-act="mod-invite">Create an invite link for Mom</button></section>');
     parts.push('<section class="card"><b>Admin history</b>' + (a.log.length ? a.log.map(function (l) {
       return '<div class="small"><b>' + h(l.user_id === me().id ? 'You' : 'Admin') + '</b> ' + h(l.text) + ' <span class="muted">· ' + h(ago(l.created_at)) + '</span></div>';
     }).join('') : '<span class="small muted">No corrections yet.</span>') + '</section>');
@@ -1028,6 +1044,261 @@
     body.date = adminData.date;
     if (adminReason) body.reason = adminReason;
     act(body, { after: function (res) { if (res.admin) { adminData = res.admin; render(); } } });
+  }
+
+  // ---------------------------------------------------------------- the System (Solo Leveling)
+
+  var RANK_COLORS = { E: '#9AA4B2', D: '#7FB2FF', C: '#5EE6C5', B: '#C8F135', A: '#FFD23F', S: '#FF8A3D', N: '#FF4D5E', P: '#FF4D5E' };
+  var REPEAT_LABEL = { once: 'one-time', daily: 'daily', weekly: 'weekly' };
+  var questPhoto = null;
+  var questProofUrls = {};
+  var modTab = 'approve';
+
+  function sysWindow(title, body, cls) {
+    return '<section class="sys-window' + (cls ? ' ' + cls : '') + '"><div class="sys-head"><span class="sys-icon">!</span>' + title + '</div>' + body + '</section>';
+  }
+
+  function statusWindow() {
+    var s = state.system, r = s.rank;
+    var stats = s.stat_names.map(function (n) {
+      return '<div class="sys-stat"><span class="sys-label">' + n.short + '</span><b>' + s.stats[n.key] + '</b>' +
+        (s.free_points ? '<button class="sys-plus" data-act="stat" data-stat="' + n.key + '" aria-label="Add a point to ' + n.name + '">+</button>' : '') + '</div>';
+    }).join('');
+    var job = s.job ? h(s.job) : s.level >= s.job_change_level ? 'Job change!' : 'Job at Lv ' + s.job_change_level;
+    return sysWindow('STATUS',
+      '<div class="sys-row"><div><div class="sys-label">NAME</div><b>' + h(me().name) + '</b></div>' +
+      '<div style="text-align:right"><div class="sys-label">LEVEL</div><b class="sys-level">' + count(s.level, '') + '</b></div></div>' +
+      '<div class="sys-row"><div><div class="sys-label">JOB</div><b>' + h(s.job || 'None') + '</b></div>' +
+      '<div style="text-align:right"><div class="sys-label">TITLE</div><b>' + h(s.title || 'None') + '</b></div></div>' +
+      '<div class="sys-row"><span class="sys-label">' + h(r.name) + (r.next_level ? ' · ' + h(r.next_letter === 'N' ? 'National Level' : r.next_letter + '-Rank') + ' at Lv ' + r.next_level : '') + '</span>' +
+      '<span class="sys-label">' + s.into + ' / ' + s.needed + ' EXP</span></div>' +
+      bar(s.needed ? s.into / s.needed : 1, '#4FC3F7', 'sysexp') +
+      '<div class="sys-stats">' + stats + '</div>' +
+      '<div class="sys-row"><span class="sys-label">Remaining points: <b class="sys-hl">' + s.free_points + '</b></span><span class="sys-label">Power ' + s.power + '</span></div>' +
+      '<div class="grid2"><button class="btn sys-btn" data-act="open-screen" data-screen="titles">Titles</button>' +
+      '<button class="btn sys-btn" data-act="open-screen" data-screen="titles">' + job + '</button></div>');
+  }
+
+  function dailyQuestWindow() {
+    var dq = state.daily_quest;
+    if (!dq.enabled) return '';
+    var rows = dq.parts.map(function (p) {
+      var ok = p.done >= p.target, km = p.unit === 'km';
+      var add = km ? [['run', 0.5, '+0.5'], ['run', 1, '+1']] : [[p.key, 10, '+10'], [p.key, 20, '+20']];
+      return '<div class="dq-row' + (ok ? ' ok' : '') + '"><span class="grow">' + h(p.label) + '</span><b>[' + p.done + '/' + p.target + (km ? ' km' : '') + ']</b>' +
+        (ok ? '<span class="dq-check">✔</span>' : add.map(function (a) {
+          return '<button class="sys-chip" data-act="dq" data-part="' + a[0] + '" data-amount="' + a[1] + '">' + a[2] + '</button>';
+        }).join('')) + '</div>';
+    }).join('');
+    var footer = dq.complete
+      ? (dq.rewarded ? '<div class="sys-done">QUEST COMPLETE · +' + dq.reward_exp + ' EXP · +1 stat point</div>'
+        : '<div class="sys-warn">Cleared. The reward is locked until the penalty is approved.</div>')
+      : '<div class="sys-label">Reward: +' + dq.reward_exp + ' EXP, +1 stat point</div>' +
+        '<div class="sys-warn">WARNING: Failing to complete the Daily Quest will bring an appropriate penalty.</div>';
+    return sysWindow('DAILY QUEST', '<div class="sys-sub">[Daily Quest: Preparation to Become Strong] has arrived.</div>' +
+      '<div class="sys-label">GOAL · workout reps count automatically</div>' + rows + footer, dq.complete ? 'done' : '');
+  }
+
+  function penaltyWindow() {
+    var q = state.daily_quest.penalty;
+    if (!q) return '';
+    return sysWindow('PENALTY QUEST', '<div class="sys-sub">You did not complete yesterday\'s Daily Quest.</div>' +
+      '<b class="sys-penalty">' + h(q.title) + '</b>' + questAction(q), 'penalty');
+  }
+
+  function questAction(q) {
+    if (q.state === 'submitted') return '<div class="small" style="color:#4FC3F7">⏳ Waiting for Mom to check</div>';
+    if (q.state === 'approved') return '<div class="small me-c">✔ Approved' + (q.repeat !== 'once' ? ' for this ' + (q.repeat === 'daily' ? 'day' : 'week') : '') + '</div>';
+    var redo = q.state === 'rejected' ? '<div class="small them-c">❌ ' + h(q.review_note ? '“' + q.review_note + '”' : 'Not approved') + '</div>' : '';
+    return redo + '<div class="grid2"><button class="btn done" data-act="quest-done" data-id="' + q.id + '">' + (q.state === 'rejected' ? 'Send again' : 'Complete') + '</button>' +
+      (q.mine && !q.penalty ? '<button class="btn outline" data-act="quest-remove" data-id="' + q.id + '">Remove</button>' : '<span></span>') + '</div>';
+  }
+
+  function questCard(q) {
+    return '<section class="card quest' + (q.state === 'approved' ? ' done' : '') + '"><div class="row" style="gap:10px">' +
+      '<span class="q-rank" style="background:' + RANK_COLORS[q.penalty ? 'P' : q.rank] + '">' + (q.penalty ? '☠' : h(q.rank)) + '</span>' +
+      '<b class="grow">' + h(q.title) + '</b><span class="small me-c">' + (q.exp ? '+' + q.exp + ' EXP' : '') + '</span></div>' +
+      '<span class="small muted">' + (q.category === 'life' ? '🏠 Life' : '💪 Fitness') + ' · ' + REPEAT_LABEL[q.repeat] + ' · from ' + h(q.mine ? 'you' : q.from) + '</span>' +
+      questAction(q) + '</section>';
+  }
+
+  function reviewCard(r) {
+    return '<section class="card"><div class="row" style="gap:10px"><span class="q-rank" style="background:' + RANK_COLORS[r.penalty ? 'P' : r.rank] + '">' + (r.penalty ? '☠' : h(r.rank)) + '</span>' +
+      '<div class="grow"><b>' + h(r.title) + '</b><div class="small muted">' + h(r.who) + ' · ' + h(ago(r.submitted_at)) + '</div></div></div>' +
+      (r.note ? '<span class="small">💬 “' + h(r.note) + '”</span>' : '') +
+      (r.has_proof ? '<div class="proof-img quest-proof" data-quest-proof="' + r.id + '"></div>' : '<span class="small muted">No photo. Check it yourself 👀</span>') +
+      '<span class="small muted">' + (r.exp ? 'Approving gives +' + r.exp + ' EXP' : 'Penalty quest: no EXP, unlocks the Daily Quest reward') + '</span>' +
+      '<div class="grid2"><button class="btn done" data-act="review" data-id="' + r.id + '">✅ Approve</button>' +
+      '<button class="btn roast" style="height:44px" data-act="review-no" data-id="' + r.id + '">❌ Reject</button></div></section>';
+  }
+
+  function loadQuestProofs() {
+    if (DEMO) return;
+    app.querySelectorAll('[data-quest-proof]').forEach(function (el) {
+      var id = el.getAttribute('data-quest-proof');
+      if (questProofUrls[id] && questProofUrls[id] !== 'pending') { el.style.backgroundImage = 'url(' + questProofUrls[id] + ')'; return; }
+      if (questProofUrls[id]) return;
+      questProofUrls[id] = 'pending';
+      fetch('/api/quest_proof/' + id, { headers: authHeaders() }).then(function (r) {
+        if (!r.ok) throw new Error('gone');
+        return r.blob();
+      }).then(function (blob) {
+        questProofUrls[id] = URL.createObjectURL(blob);
+        app.querySelectorAll('[data-quest-proof="' + id + '"]').forEach(function (d) { d.style.backgroundImage = 'url(' + questProofUrls[id] + ')'; });
+      }).catch(function () { questProofUrls[id] = null; });
+    });
+  }
+
+  function questsScreen() {
+    var parts = ['<header class="row between"><div class="display h1">Quests <span class="jp" style="font-size:16px;color:#4FC3F7">システム</span></div></header>'];
+    parts.push(statusWindow());
+    parts.push(penaltyWindow());
+    parts.push(dailyQuestWindow());
+    if (state.can_review && state.reviews.length) {
+      parts.push('<div class="display h2">To approve</div>');
+      state.reviews.forEach(function (r) { parts.push(reviewCard(r)); });
+    }
+    var open = state.quests.filter(function (q) { return !q.penalty; });
+    parts.push('<div class="row between"><div class="display h2">Quests</div><button class="btn done" style="height:36px" data-act="open-propose">+ Add</button></div>');
+    parts.push(open.length ? open.map(questCard).join('')
+      : '<section class="card dashed small muted">No quests yet. Mom gives quests, or add your own: homework, a 5 km run, clean your room…</section>');
+    if (me().is_owner && !state.moderators.length) {
+      parts.push('<section class="card dashed small muted">👩‍⚖️ No quest moderator yet, so you approve your brother\'s quests for now. ' +
+        'Invite Mom from <b>Admin</b> or the bot\'s <b>/crew</b> menu.</section>');
+    }
+    return parts.join('');
+  }
+
+  function titlesScreen() {
+    var s = state.system;
+    var parts = [backHeader('Titles & Job')];
+    parts.push(sysWindow('TITLES', s.titles.map(function (t) {
+      var on = s.title === t.name;
+      return '<div class="dq-row' + (t.unlocked ? ' ok' : '') + '"><span class="grow"><b>' + h(t.name) + '</b><br><span class="sys-label">' + h(t.how) + '</span></span>' +
+        (t.unlocked ? (on ? '<span class="dq-check">✔</span>' : '<button class="sys-chip" data-act="title" data-id="' + t.id + '">Equip</button>') : '🔒') + '</div>';
+    }).join('')));
+    var intro = s.job ? '<div class="sys-sub">Your class: <b class="sys-hl">' + h(s.job) + '</b></div>'
+      : s.level < s.job_change_level ? '<div class="sys-sub">The Job Change unlocks at Level ' + s.job_change_level + '. You are Level ' + s.level + '.</div>'
+      : '<div class="sys-sub">You may choose your path. This can\'t be undone.</div>';
+    parts.push(sysWindow('JOB CHANGE', intro + s.jobs.map(function (j) {
+      return '<div class="dq-row' + (j.unlocked ? ' ok' : '') + '"><span class="grow"><b>' + h(j.name) + '</b>' + (j.stat ? ' <span class="sys-label">' + j.stat.toUpperCase() + '</span>' : '') +
+        '<br><span class="sys-label">' + h(j.about) + '</span></span>' +
+        (!s.job && j.unlocked ? '<button class="sys-chip" data-act="job" data-id="' + j.id + '">Choose</button>' : j.unlocked ? '' : '🔒') + '</div>';
+    }).join('')));
+    return parts.join('');
+  }
+
+  function questSheet() {
+    var q = state.quests.filter(function (x) { return x.id === sheet.id; })[0] || {};
+    return '<div class="scrim" data-act="close-sheet"><form class="sheet" data-stop="1" data-form="quest-done" data-id="' + sheet.id + '">' +
+      '<b>Complete: ' + h(q.title) + '</b><span class="small muted">Mom checks it before you get the EXP. A photo helps.</span>' +
+      '<input class="input" name="note" maxlength="140" placeholder="Note for Mom (optional)" aria-label="Note">' +
+      '<label class="btn outline" style="display:flex;align-items:center;justify-content:center">' + (questPhoto ? '📷 Photo added ✓' : '📷 Add a photo (optional)') +
+      '<input type="file" accept="image/*" data-input="quest-photo" hidden></label>' +
+      '<button class="btn done" type="submit">Send to Mom</button><button class="btn outline" type="button" data-act="close-sheet">Cancel</button></form></div>';
+  }
+
+  function proposeSheet() {
+    var sh = sheet, ranks = (state.quest_ranks || state.ranks);
+    var assign = sh.mod ? '<span class="small muted">For</span><div class="quest-chips">' + [['all', 'Everyone']].concat(state.hunters.map(function (x) { return [String(x.id), x.name]; })).map(function (a) {
+      return '<button type="button" class="chip-btn' + (sh.assignee === a[0] ? ' on' : '') + '" data-act="qs-set" data-k="assignee" data-v="' + a[0] + '">' + h(a[1]) + '</button>';
+    }).join('') + '</div>' : '';
+    var templates = (state.quest_templates || state.templates).map(function (t, i) {
+      return '<button type="button" class="chip-btn" data-act="qs-template" data-i="' + i + '">' + h(t.title) + '</button>';
+    }).join('');
+    function chips(key, list) {
+      return '<div class="quest-chips">' + list.map(function (v) {
+        return '<button type="button" class="chip-btn' + (sh[key] === v[0] ? ' on' : '') + '" data-act="qs-set" data-k="' + key + '" data-v="' + v[0] + '">' + h(v[1]) + '</button>';
+      }).join('') + '</div>';
+    }
+    return '<div class="scrim" data-act="close-sheet"><form class="sheet" data-stop="1" data-form="quest-new">' +
+      '<b>' + (sh.mod ? 'Give a quest' : 'Add your own quest') + '</b>' +
+      '<div class="quick no-swipe">' + templates + '</div>' +
+      '<input class="input" name="title" maxlength="60" placeholder="e.g. Clean your room" value="' + h(sh.title || '') + '" aria-label="Quest" required>' +
+      chips('category', [['life', '🏠 Life'], ['fitness', '💪 Fitness']]) +
+      '<span class="small muted">Difficulty (EXP)</span>' +
+      chips('rank', ranks.map(function (r) { return [r.rank, r.rank + ' · ' + r.exp]; })) +
+      chips('repeat', [['once', 'One-time'], ['daily', 'Every day'], ['weekly', 'Every week']]) + assign +
+      '<button class="btn done" type="submit">' + (sh.mod ? 'Send quest 📜' : 'Add quest') + '</button>' +
+      '<button class="btn outline" type="button" data-act="close-sheet">Cancel</button></form></div>';
+  }
+
+  function rejectSheet() {
+    return '<div class="scrim" data-act="close-sheet"><form class="sheet" data-stop="1" data-form="quest-reject" data-id="' + sheet.id + '">' +
+      '<b>Why not?</b><input class="input" name="note" maxlength="140" placeholder="e.g. Still clothes under the bed 😤" aria-label="Reason">' +
+      '<button class="btn roast" style="height:46px" type="submit">Send back</button><button class="btn outline" type="button" data-act="close-sheet">Cancel</button></form></div>';
+  }
+
+  function linkSheet() {
+    return '<div class="scrim" data-act="close-sheet"><section class="sheet" data-stop="1"><b>👩‍⚖️ Invite link for Mom</b>' +
+      '<span class="small muted">It works once and expires in 48 hours. She approves quests and gives new ones; she doesn\'t train or get reminders.</span>' +
+      '<input class="input" readonly value="' + h(sheet.link) + '" aria-label="Invite link" data-input="select-all">' +
+      '<button class="btn done" data-act="share-link">Send it in Telegram</button>' +
+      '<button class="btn outline" data-act="copy-link">Copy link</button>' +
+      '<button class="btn outline" data-act="close-sheet">Close</button></section></div>';
+  }
+
+  function levelUpOverlay() {
+    var s = state.system, from = state.me.seen_level;
+    return '<div class="burst sys-burst" data-act="close-levelup" role="dialog" aria-label="Level up"><div class="sys-window levelup">' +
+      '<div class="sys-head"><span class="sys-icon">!</span>NOTIFICATION</div>' +
+      '<div class="levelup-big">LEVEL UP!</div>' +
+      '<div class="sys-sub">Level ' + from + ' → <b class="sys-hl">' + s.level + '</b></div>' +
+      '<div class="sys-label">+' + 5 * (s.level - from) + ' stat points · ' + h(s.rank.name) + '</div>' +
+      '<div class="sys-label" style="margin-top:10px">Tap to continue</div></div></div>';
+  }
+
+  // ---------------------------------------------------------------- moderator (Mom)
+
+  function modScreen() {
+    var st = state, parts = [];
+    parts.push('<header><div class="small" style="color:#4FC3F7;letter-spacing:2px">QUEST MODERATOR</div>' +
+      '<div class="display h1">Hi, ' + h(st.me.name) + ' 👩‍⚖️</div></header>');
+    if (modTab === 'approve') {
+      parts.push(st.pending.length ? st.pending.map(reviewCard).join('')
+        : sysWindow('NOTIFICATION', '<div class="sys-sub">All clear ✨ Nothing to check right now.</div><div class="sys-label">You get a Telegram message when someone finishes a quest.</div>'));
+      if (st.recent.length) {
+        parts.push('<section class="card"><b>Recently checked</b>' + st.recent.map(function (r) {
+          return '<div class="small">' + (r.status === 'approved' ? '✅' : '❌') + ' <b>' + h(r.who) + '</b> · ' + h(r.title) +
+            (r.exp ? ' <span class="me-c">+' + r.exp + '</span>' : '') + ' <span class="muted">· ' + h(ago(r.reviewed_at)) + '</span></div>';
+        }).join('') + '</section>');
+      }
+    } else if (modTab === 'quests') {
+      parts.push('<button class="btn primary" data-act="open-propose" data-mod="1">📜 Give a quest</button>');
+      parts.push(st.quests.length ? st.quests.map(function (q) {
+        return '<section class="card"><div class="row" style="gap:10px"><span class="q-rank" style="background:' + RANK_COLORS[q.penalty ? 'P' : q.rank] + '">' + (q.penalty ? '☠' : h(q.rank)) + '</span>' +
+          '<b class="grow">' + h(q.title) + '</b></div><span class="small muted">For ' + h(q.for) + ' · ' + REPEAT_LABEL[q.repeat] + ' · by ' + h(q.by) + '</span>' +
+          '<button class="btn outline" style="height:36px" data-act="quest-remove" data-id="' + q.id + '">Remove</button></section>';
+      }).join('') : '<section class="card dashed small muted">No quests yet. Give the first one!</section>');
+    } else {
+      parts.push(st.hunters.map(function (x) {
+        return sysWindow(h(x.name).toUpperCase(),
+          '<div class="sys-row"><div><div class="sys-label">LEVEL</div><b class="sys-level">' + x.level + '</b></div>' +
+          '<div style="text-align:right"><div class="sys-label">RANK</div><b>' + h(x.rank.name) + '</b></div></div>' +
+          bar(x.needed ? x.into / x.needed : 1, '#4FC3F7', 'mh' + x.id) +
+          '<div class="dq-row ok"><span class="grow">Today\'s workout</span><b>' + (x.today.status === 'completed' ? '✔ done' : x.today.done + '/' + x.today.total) + '</b></div>' +
+          '<div class="dq-row' + (x.dq_complete ? ' ok' : '') + '"><span class="grow">Daily Quest</span><b>' + (x.dq_complete ? '✔' : 'not yet') + '</b></div>' +
+          '<div class="dq-row ok"><span class="grow">Streak</span><b>' + x.streak + ' days</b></div>' +
+          (x.penalty ? '<div class="sys-warn">☠ ' + h(x.penalty) + '</div>' : '') +
+          (x.title ? '<div class="sys-label">Title: ' + h(x.title) + '</div>' : ''));
+      }).join(''));
+    }
+    return parts.join('');
+  }
+
+  function modNav() {
+    var tabs = [['approve', 'Approve', '✅'], ['quests', 'Quests', '📜'], ['hunters', 'Hunters', '⚔️']];
+    return '<nav class="nav nav3" aria-label="Sections">' + tabs.map(function (t) {
+      var badge = t[0] === 'approve' && state.pending.length ? '<span class="nav-badge">' + state.pending.length + '</span>' : '';
+      return '<button data-act="mod-tab" data-tab="' + t[0] + '"' + (modTab === t[0] ? ' aria-current="page"' : '') + '><span style="font-size:20px">' + t[2] + '</span>' + t[1] + badge + '</button>';
+    }).join('') + '</nav>';
+  }
+
+  function renderModerator() {
+    var overlay = sheet ? (sheet.kind === 'propose' ? proposeSheet() : sheet.kind === 'reject' ? rejectSheet() : '') : '';
+    var banner = DEV && params.get('banner') !== '0' ? '<div class="demo">Dev mode · you are the moderator <b>' + h(state.me.name) + '</b></div>' : '';
+    app.innerHTML = banner + modScreen() + modNav() + overlay;
+    loadQuestProofs();
   }
 
   // ---------------------------------------------------------------- overlays
@@ -1131,9 +1402,11 @@
   }
 
   function nav() {
-    var tabs = [['home', 'Home'], ['today', 'Today'], ['duel', 'Duel'], ['chat', 'Chat'], ['progress', 'Progress']];
+    var tabs = [['home', 'Home'], ['today', 'Today'], ['quests', 'Quests'], ['duel', 'Duel'], ['chat', 'Chat'], ['progress', 'Progress']];
+    var questBadge = (state.can_review ? state.reviews.length : 0) + (state.daily_quest.penalty ? 1 : 0);
     return '<nav class="nav" aria-label="Sections">' + tabs.map(function (t) {
-      var badge = t[0] === 'chat' && state.unread ? '<span class="nav-badge">' + state.unread + '</span>' : '';
+      var n = t[0] === 'chat' ? state.unread : t[0] === 'quests' ? questBadge : 0;
+      var badge = n ? '<span class="nav-badge">' + n + '</span>' : '';
       return '<button data-act="tab" data-tab="' + t[0] + '"' + (tab === t[0] && !screen ? ' aria-current="page"' : '') + '>' + icon(t[0]) + t[1] + badge + '</button>';
     }).join('') + '</nav>';
   }
@@ -1144,12 +1417,13 @@
 
   function render() {
     if (!state) return;
+    if (state.role === 'moderator') { renderModerator(); return; }
     chatNewFrom = chatSeenSent;
     if (tab === 'chat' && !screen) markChatSeen();
     var page = screen === 'settings' ? settingsScreen() : screen === 'exercises' ? exercisesScreen()
       : screen === 'test' ? testScreen() : screen === 'gear' ? gearScreen() : screen === 'body' ? bodyScreen()
-      : screen === 'live' ? liveScreen() : screen === 'player' && player ? playerScreen() : screen === 'report' ? reportScreen() : screen === 'admin' ? adminScreen()
-      : tab === 'today' ? todayScreen() : tab === 'duel' ? duelScreen() : tab === 'chat' ? chatScreen()
+      : screen === 'live' ? liveScreen() : screen === 'player' && player ? playerScreen() : screen === 'report' ? reportScreen() : screen === 'admin' ? adminScreen() : screen === 'titles' ? titlesScreen()
+      : tab === 'today' ? todayScreen() : tab === 'quests' ? questsScreen() : tab === 'duel' ? duelScreen() : tab === 'chat' ? chatScreen()
       : tab === 'progress' ? progressScreen() : homeScreen();
     var banner = DEMO ? '<div class="demo">Demo with sample data. Open it from the bot in Telegram to see your real crew.</div>'
       : DEV && params.get('banner') !== '0' ? '<div class="demo">Dev mode · you are <b>' + h(me().name) + '</b> · switch to ' + others().map(function (o) {
@@ -1161,6 +1435,10 @@
     if (!state.me.onboarded) overlay = welcomeOverlay();
     else if (w.enabled && w.today && w.today.status === 'pending' && !wakeDismissed) overlay = wakeOverlay();
     else if (celebration) overlay = celebrationOverlay();
+    else if (state.me.seen_level && state.system.level > state.me.seen_level) {
+      if (!levelUpShown) { levelUpShown = true; haptic('success'); FX.sounds.win(); afterRender.push(function () { FX.confetti(); }); }
+      overlay = levelUpOverlay();
+    }
     else if (rankUp) {
       celebration = { kind: 'rank', from: state.me.seen_rank, to: state.me.rank.letter };
       haptic('success');
@@ -1169,6 +1447,8 @@
       overlay = celebrationOverlay();
     } else if (sheet) {
       overlay = sheet.kind === 'roast' ? roastSheet() : sheet.kind === 'day' ? daySheet() : sheet.kind === 'bet' ? betSheet()
+        : sheet.kind === 'quest' ? questSheet() : sheet.kind === 'propose' ? proposeSheet() : sheet.kind === 'reject' ? rejectSheet()
+        : sheet.kind === 'link' ? linkSheet()
         : sheet.kind === 'image' ? imageSheet() : challengeSheet();
     }
     document.body.classList.toggle('chat-open', tab === 'chat' && !screen && others().length > 0);
@@ -1201,6 +1481,7 @@
       });
     });
     if (screen === 'body') loadPhotos();
+    if (tab === 'quests' && !screen) loadQuestProofs();
     if (tab === 'chat' && !screen) {
       loadProofMedia();
       if (entering || nearBottom) window.scrollTo(0, document.body.scrollHeight);
@@ -1296,6 +1577,16 @@
   }
 
   function setState(next) {
+    if (next.role === 'moderator') {
+      state = next;
+      if (startRoute) startRoute = null;
+      render();
+      return;
+    }
+    if (next.system && !next.me.seen_level) {   // first time: start from today's level, no pop-up
+      next.me.seen_level = next.system.level;
+      quietAct({ type: 'ack_level' });
+    }
     var prev = state;
     // Taps not yet sent stay visible after a refresh.
     Object.keys(deltaQueue).forEach(function (id) {
@@ -1847,6 +2138,56 @@
       case 'p-rest-add': player.left += 15; player.restTotal += 15; render(); break;
       case 'p-timer': playerTimer(); break;
       case 'p-timer-stop': playerTimerStop(); break;
+      // the System
+      case 'stat': act({ type: 'stat_alloc', stat: d.stat }, { after: function () { FX.floatText(el, '+1', '#4FC3F7', 26); } }); break;
+      case 'dq': act({ type: 'dq_log', part: d.part, amount: +d.amount }, { after: function (res) {
+        FX.floatText(el, '+' + d.amount, '#4FC3F7', 26);
+        if (res.state.daily_quest.complete && res.state.daily_quest.rewarded) FX.confetti(1800);
+      } }); break;
+      case 'dq-toggle': act({ type: 'dq_toggle' }); break;
+      case 'quest-done': questPhoto = null; sheet = { kind: 'quest', id: +d.id }; render(); break;
+      case 'quest-remove':
+        if (!el.dataset.confirm) { el.dataset.confirm = '1'; el.textContent = 'Tap again to remove'; break; }
+        act({ type: 'quest_archive', quest_id: +d.id });
+        break;
+      case 'open-propose':
+        sheet = { kind: 'propose', mod: d.mod === '1', category: 'life', rank: 'D', repeat: 'once', assignee: 'all', title: '' };
+        render();
+        break;
+      case 'qs-set':
+        var titleInput = app.querySelector('[data-form="quest-new"] input[name="title"]');
+        if (titleInput) sheet.title = titleInput.value;
+        sheet[d.k] = d.v; render();
+        break;
+      case 'qs-template':
+        var tpl = (state.quest_templates || state.templates)[+d.i];
+        sheet.title = tpl.title; sheet.category = tpl.category; sheet.rank = tpl.rank; sheet.repeat = tpl.repeat; render();
+        break;
+      case 'review': act({ type: 'quest_review', run_id: +d.id, approve: true }, { after: function () { FX.floatText(null, '✅ APPROVED', 'var(--me)', 30); } }); break;
+      case 'review-no': sheet = { kind: 'reject', id: +d.id }; render(); break;
+      case 'title': act({ type: 'title_equip', id: d.id }); break;
+      case 'job':
+        if (!el.dataset.confirm) { el.dataset.confirm = '1'; el.textContent = 'Sure?'; break; }
+        act({ type: 'job_change', id: d.id }, { after: function () { FX.confetti(); FX.sounds.win(); } });
+        break;
+      case 'close-levelup': state.me.seen_level = state.system.level; levelUpShown = false; quietAct({ type: 'ack_level' }); render(); break;
+      case 'mod-tab': modTab = d.tab; animateNext = true; render(); window.scrollTo(0, 0); break;
+      case 'mod-invite':
+        act({ type: 'admin_mod_invite' }, { after: function (res) {
+          if (res.link) { sheet = { kind: 'link', link: res.link }; render(); }
+        } });
+        break;
+      case 'share-link':
+        var shareUrl = 'https://t.me/share/url?url=' + encodeURIComponent(sheet.link) + '&text=' + encodeURIComponent('You are our Quest Moderator 👩‍⚖️ Tap to join:');
+        if (tg && tg.openTelegramLink) tg.openTelegramLink(shareUrl); else window.open(shareUrl, '_blank');
+        break;
+      case 'copy-link':
+        if (navigator.clipboard) navigator.clipboard.writeText(sheet.link).then(function () { toast('Copied.'); }, function () { toast('Press and hold the link to copy it.'); });
+        break;
+      case 'mod-remove':
+        if (!el.dataset.confirm) { el.dataset.confirm = '1'; el.textContent = 'Sure?'; break; }
+        act({ type: 'admin_mod_remove', user: +d.id });
+        break;
       // admin
       case 'admin-user': adminData.user = +d.id; loadAdmin(+d.id, null); break;
       case 'admin-date': loadAdmin(adminData.user, d.date); break;
@@ -1886,6 +2227,29 @@
         sheet = null;
         act({ type: 'roast', target: +f.target, text: data.get('text') }, { after: function (res) { if (res.sent) attack(+f.target, '🔥', 'ROASTED'); } });
         break;
+      case 'quest-done':
+        var qid = +f.id, note = String(data.get('note') || '');
+        sheet = null;
+        if (questPhoto) {
+          var file = questPhoto;
+          questPhoto = null;
+          shrinkImage(file, function (blob) { upload('/api/quest_submit?quest_id=' + qid + '&note=' + encodeURIComponent(note), blob, 'image/jpeg'); });
+        } else {
+          act({ type: 'quest_submit', quest_id: qid, note: note });
+        }
+        break;
+      case 'quest-new':
+        var sh = sheet, body = { title: data.get('title'), category: sh.category, rank: sh.rank, repeat: sh.repeat };
+        sheet = null;
+        if (state.role === 'moderator') { body.type = 'quest_create'; body.assignee = sh.assignee; }
+        else body.type = 'quest_propose';
+        act(body);
+        break;
+      case 'quest-reject':
+        var rid = +f.id;
+        sheet = null;
+        act({ type: 'quest_review', run_id: rid, approve: false, note: String(data.get('note') || '') });
+        break;
       case 'admin-item':
         adminAct({ type: 'admin_item', item_id: +f.id, reps: data.get('reps'), target: data.get('target') });
         break;
@@ -1904,6 +2268,7 @@
   app.addEventListener('change', function (e) {
     if (e.target.matches('[data-input="photo"]') && e.target.files[0]) uploadPhoto(e.target.files[0]);
     if (e.target.matches('[data-input="proof"]') && e.target.files[0]) uploadProof(e.target.files[0]);
+    if (e.target.matches('[data-input="quest-photo"]') && e.target.files[0]) { questPhoto = e.target.files[0]; render(); }
     if (e.target.matches('[data-input="admin-date"]') && e.target.value) loadAdmin(adminData.user, e.target.value);
   });
   app.addEventListener('input', function (e) {
@@ -2049,6 +2414,15 @@
           stake: body.stake, status: 'offered', rival: 'Andrei', mine_to_answer: false, i_offered: true, result: null, score: null }); out.message = 'Bet sent! They have until 23:00 to answer.'; break;
         case 'bet_answer': s.bets.forEach(function (b) { if (b.id === body.id) { b.status = body.accept ? 'accepted' : 'declined'; b.mine_to_answer = false; b.score = b.kind === 'first' ? null : { me: s.crew[0].reps, rival: s.crew[1].reps }; } });
           out.message = body.accept ? 'Bet\'s on! 🎲' : 'Backed out. No points lost.'; break;
+        case 'dq_log': s.daily_quest.parts.forEach(function (p) { if (p.key === (body.part === 'run' ? 'run' : body.part)) p.done = Math.round((p.done + body.amount) * 10) / 10; });
+          s.daily_quest.complete = s.daily_quest.parts.every(function (p) { return p.done >= p.target; }); s.daily_quest.rewarded = s.daily_quest.complete; break;
+        case 'stat_alloc': if (s.system.free_points) { s.system.stats[body.stat] += 1; s.system.free_points -= 1; } break;
+        case 'quest_submit': s.quests.forEach(function (q) { if (q.id === body.quest_id) q.state = 'submitted'; }); out.message = 'Sent to Mom for approval ⏳'; break;
+        case 'quest_propose': s.quests.push({ id: Date.now(), title: body.title, category: body.category, rank: body.rank, repeat: body.repeat, exp: 50, penalty: false,
+          from: 'Victor', mine: true, state: 'open', run_id: null, review_note: '', note: '' }); out.message = 'Quest added. Mom approves it when you finish.'; break;
+        case 'quest_archive': s.quests = s.quests.filter(function (q) { return q.id !== body.quest_id; }); break;
+        case 'title_equip': s.system.titles.forEach(function (t) { if (t.id === body.id) s.system.title = t.name; }); break;
+        case 'dq_toggle': s.daily_quest.enabled = !s.daily_quest.enabled; break;
         case 'proof_vote': s.chat.forEach(function (m) {
           if (m.proof && m.proof.id === body.id) {
             m.proof.mine = m.proof.mine === body.vote ? null : body.vote;
@@ -2093,7 +2467,7 @@
     };
     return {
       sig: 'demo',
-      me: { id: 1, name: 'Victor', is_owner: true, color: '#C8F135', anime: true, roast_level: 'savage', feed: true, onboarded: false,
+      me: { id: 1, name: 'Victor', is_owner: true, color: '#C8F135', anime: true, roast_level: 'savage', feed: true, onboarded: false, seen_level: 12,
         rank: { letter: 'C', index: 2, xp: 340, floor: 300, next_letter: 'B', next_at: 700 }, seen_rank: 'C', gear: myGear },
       settings: { workout_time: '07:00', timezone: 'Europe/Chisinau', notifications: true, wake_enabled: true, wake_time: '06:30', roast_level: 'savage', feed: true, paused_until: null },
       exercises: [{ id: 11, name: 'Push-ups', target: 50, unit: 'reps', active: true, days: '0,1,2,3,4,5,6' },
@@ -2131,6 +2505,26 @@
       bet_kinds: [{ key: 'reps', label: 'More total reps today' }, { key: 'push', label: 'More push-ups today' }, { key: 'first', label: 'Finish today\'s workout first' }],
       stakes: [5, 10, 20],
       report: { last: report(lastMonth, 24), current: report(month, 8) },
+      system: { level: 12, exp: 11800, into: 640, needed: 1013, floor: 11160, rank: { letter: 'D', name: 'D-Rank', index: 1, next_letter: 'C', next_level: 20 },
+        stats: { str: 18, agi: 14, vit: 16, int: 11, per: 12 }, free_points: 5, power: 852, title: 'Rookie Hunter', job: null, job_change_level: 40, dq_cleared: 9,
+        stat_names: [{ key: 'str', short: 'STR', name: 'Strength' }, { key: 'agi', short: 'AGI', name: 'Agility' }, { key: 'vit', short: 'VIT', name: 'Vitality' },
+          { key: 'int', short: 'INT', name: 'Intelligence' }, { key: 'per', short: 'PER', name: 'Perception' }],
+        titles: [{ id: 'rookie', name: 'Rookie Hunter', how: 'Starter', unlocked: true }, { id: 'dawn', name: 'The One Who Wakes Before Dawn', how: '14 on-time wake-ups', unlocked: false },
+          { id: 'moms_pride', name: 'Mother\'s Pride', how: '25 approved life quests', unlocked: false }, { id: 'monarch', name: 'Shadow Monarch', how: 'Reach level 100', unlocked: false }],
+        jobs: [{ id: 'fighter', name: 'Fighter', stat: 'str', about: 'Hits harder than he talks.', unlocked: false },
+          { id: 'necromancer', name: 'Necromancer', stat: null, about: 'The hidden class. 40 Daily Quests cleared.', unlocked: false }] },
+      daily_quest: { date: today, enabled: true, complete: false, rewarded: false, reward_exp: 160, penalty: null, parts: [
+        { key: 'pushups', label: 'Push-ups', done: 30, target: 40 }, { key: 'situps', label: 'Sit-ups', done: 40, target: 40 },
+        { key: 'squats', label: 'Squats', done: 50, target: 40 }, { key: 'run', label: 'Running', done: 1.5, target: 3, unit: 'km' }] },
+      quests: [
+        { id: 31, title: '🧹 Clean your room', category: 'life', rank: 'D', repeat: 'weekly', exp: 50, penalty: false, from: 'Mom', mine: false, state: 'open', run_id: null, review_note: '', note: '' },
+        { id: 32, title: '📚 Homework done', category: 'life', rank: 'D', repeat: 'daily', exp: 50, penalty: false, from: 'Mom', mine: false, state: 'submitted', run_id: 5, review_note: '', note: '' },
+        { id: 33, title: '🏃 5 km run', category: 'fitness', rank: 'C', repeat: 'once', exp: 100, penalty: false, from: 'Victor', mine: true, state: 'rejected', run_id: 6,
+          review_note: 'Your watch says 3 km 😏', note: '' }],
+      can_review: false, reviews: [], moderators: [{ id: 3, name: 'Mom' }],
+      quest_ranks: [{ rank: 'E', exp: 25 }, { rank: 'D', exp: 50 }, { rank: 'C', exp: 100 }, { rank: 'B', exp: 200 }, { rank: 'A', exp: 400 }, { rank: 'S', exp: 800 }],
+      quest_templates: [{ title: '🛏 Make your bed', category: 'life', rank: 'E', repeat: 'daily' }, { title: '🧹 Clean your room', category: 'life', rank: 'D', repeat: 'weekly' },
+        { title: '🏃 5 km run', category: 'fitness', rank: 'C', repeat: 'once' }],
       today: { date: today, status: 'pending', quick: false, comeback_pct: null, feedback: null, can_give_feedback: false, paused_until: null,
         done_count: 1, progress: 0.62,
         items: [
@@ -2143,8 +2537,8 @@
       last4weeks: days(['done', 'done', 'done', 'done', 'done', 'rest', 'done', 'done', 'partial', 'done', 'done', 'paused', 'paused', 'paused',
         'done', 'done', 'done', 'done', 'done', 'done', 'done', 'done', 'done', 'done', 'today', 'future', 'future', 'future']),
       crew: [
-        { id: 1, name: 'Victor', me: true, color: '#C8F135', status: 'pending', done: 1, total: 4, reps: 100, streak: 12, progress: 0.62, wake: '', rank: 'C', gear: myGear, title: null, live: false, rest_left: 0 },
-        { id: 2, name: 'Andrei', me: false, color: '#FF8A3D', status: 'pending', done: 1, total: 4, reps: 30, streak: 4, progress: 0.25, wake: '☀️ 07:42 ⏰', rank: 'D',
+        { id: 1, name: 'Victor', me: true, color: '#C8F135', status: 'pending', done: 1, total: 4, reps: 100, streak: 12, progress: 0.62, wake: '', rank: 'D', level: 12, gear: myGear, title: null, live: false, rest_left: 0 },
+        { id: 2, name: 'Andrei', me: false, color: '#FF8A3D', status: 'pending', done: 1, total: 4, reps: 30, streak: 4, progress: 0.25, wake: '☀️ 07:42 ⏰', rank: 'E', level: 8,
           gear: broGear, title: 'Last month\'s champion', live: true, rest_left: 0 }],
       crew_streak: 5,
       points: [{ id: 1, name: 'Victor', points: 85, color: '#C8F135' }, { id: 2, name: 'Andrei', points: 60, color: '#FF8A3D' }],

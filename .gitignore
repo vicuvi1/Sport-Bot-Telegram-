@@ -11,3 +11,4 @@ venv/
 .pytest_cache/
 data/photos/
 data/proofs/
+data/quest_proofs/

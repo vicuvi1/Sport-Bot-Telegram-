@@ -5,7 +5,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/telegram-bot%20%2B%20mini%20app-26A5E4?style=flat-square&logo=telegram&logoColor=white" alt="Telegram bot and Mini App">
-  <img src="https://img.shields.io/badge/tests-315%20passing-22c55e?style=flat-square" alt="315 tests passing">
+  <img src="https://img.shields.io/badge/tests-327%20passing-22c55e?style=flat-square" alt="327 tests passing">
   <img src="https://img.shields.io/badge/frontend-no%20build%20step-C8F135?style=flat-square" alt="No build step">
   <img src="https://img.shields.io/badge/AI-none%2C%20no%20API%20keys-0ea5e9?style=flat-square" alt="No AI, no API keys">
   <img src="https://img.shields.io/badge/license-MIT-a855f7?style=flat-square" alt="MIT license">
@@ -36,6 +36,17 @@
 
 Every rep you log **drains your brother's HP** in the arena, live. Fall behind and he gets a ping: *"⚡ Victor just passed you: 120 vs 100 reps"*, with a **Revenge** button. Bet 20 points that you'll do more push-ups today, back it up with a 5-second **proof clip**, and let him rule it 🔥 legit or 🧢 cap. On Sunday the loser does the forfeit.
 
+## 🔷 The System (Solo Leveling)
+
+You're a hunter, and the System is watching.
+
+- **Levels 1 → 150:** every workout, wake-up, challenge and quest gives EXP. Level 10 takes a few weeks, level 50 about a year and a half, and 100 is a lifetime. Ranks go **E → D → C → B → A → S → National Level**.
+- **Status window:** every level gives 5 stat points to spend on **STR, AGI, VIT, INT, PER**. Unlock titles (*The One Who Wakes Before Dawn*, *Mother's Pride*, *Shadow Monarch*…) and pick a job at level 40 (Fighter, Assassin, Tank, Mage, Ranger, or the hidden Necromancer).
+- **⚔️ Daily Quest: Preparation to Become Strong:** push-ups, sit-ups, squats and a run. It grows with your level, up to the original **100 / 100 / 100 / 10 km**. Your normal workout reps count automatically. Clear it for EXP and a stat point.
+- **☠️ Penalty Quest:** skip the Daily Quest and the System issues a penalty the next day (100 burpees, a cold shower…). Daily Quest rewards stay locked until it's done.
+- **📜 Quests verified by Mom:** life tasks (clean your room, homework, read 30 min) and fitness side quests, ranked E (25 EXP) to S (800 EXP), one-time, daily or weekly. Mom assigns them, or you add your own. You tap **Complete** (with a photo if you like), and Mom gets a message with ✅ Approve / ❌ Reject. No approval, no EXP.
+- **👩‍⚖️ Mom's view:** she joins with her own invite link as **Quest Moderator**. She gets an approval queue, a quest board and a Hunters page with everyone's level, workout and Daily Quest. She never trains and never gets reminders.
+
 ## 🏋️ Every workout counts
 
 <p align="center">
@@ -54,7 +65,7 @@ Tap **+5** and watch the number pop, chain a **combo**, finish with confetti. Or
 | 🎯 **It adapts to you** | Tell it a workout was *too easy* or *too hard* and your targets change. After a break it eases you back in at 70% → 85% → 100%. Skill ladders turn 60 push-ups into diamond push-ups. |
 | 🧪 **It proves you're changing** | A 10-minute fitness test on the 1st of every month (*push-ups 18 → 24 → 31*), weekly weight trends and private then-and-now photos. Real numbers, not just streaks. |
 | 🎮 **It's fun to open** | An anime layer you can switch off: a mascot that breathes and jumps on every rep, ranks E → S, unlockable gear, monthly champion titles. |
-| 🛡 **It runs for years** | Verified backups, error reports in Telegram, an outside alarm if the server dies, and 315 automated tests. |
+| 🛡 **It runs for years** | Verified backups, error reports in Telegram, an outside alarm if the server dies, and 327 automated tests. |
 | 🔒 **It's yours** | One SQLite file on your server. No AI, no API keys, no tracking, no subscription. |
 
 ---
@@ -69,6 +80,7 @@ Tap **+5** and watch the number pop, chain a **combo**, finish with confetti. Or
 | **19:00** if not done | A streak-saver nudge listing only what's left. |
 | **21:00** | 🤖 Auto-roast if your crew trained and you didn't. |
 | **23:00** | Challenges and bets are settled automatically. |
+| **00:05** | ☠️ Missed yesterday's Daily Quest? A Penalty Quest appears. |
 | **Sunday 20:30** | 🏆 Weekly points: the winner is crowned and picks the loser's forfeit (50 extra push-ups, cold shower…). |
 | **1st of the month** | 🧪 Fitness test, 👑 season champion, 📊 your report card. |
 
@@ -156,7 +168,8 @@ Open your bot in Telegram and send **`/start`**. Then **`/crew`** → **Invite**
 | `/history` | 4-week heatmap and recent workouts |
 | `/summary` | This week's summary on demand |
 | `/test` | Monthly fitness test and your progress history |
-| `/crew` · `/duel` | Your crew, invites, roast / hype · today's scoreboard |
+| `/crew` · `/duel` | Your crew, invites (crew and Mom), roast / hype · today's scoreboard |
+| `/quests` | The System: your level, the Daily Quest, and your quests with ✅ Done buttons |
 | `/wake` | Wake-up challenge: on/off and time |
 | `/points` · `/challenge` | Weekly points and forfeits · challenge a crew mate |
 | `/partner` | Invite or manage your accountability partner (owner) |
@@ -259,7 +272,7 @@ flowchart LR
 
 - **Python 3.11+**, `python-telegram-bot` 22, `APScheduler` 3, `aiohttp`, SQLite. Pinned dependencies for long-term stability.
 - **The app is plain JavaScript:** no framework, no build step, no npm. Every API call carries Telegram's signed login data, checked on the server.
-- **315 tests** cover crew isolation, the multi-user migration, streaks, pauses, the comeback ramp, the fitness test, chat, bets, proof clips, overtake alerts, admin corrections, app login, backups and button routing. Run them with `pytest -q`.
+- **327 tests** cover crew isolation, the multi-user migration, streaks, pauses, the comeback ramp, the fitness test, chat, bets, proof clips, overtake alerts, admin corrections, quests and approvals, the Daily Quest and penalties, levels, app login, backups and button routing. Run them with `pytest -q`.
 
 ---
 
@@ -275,6 +288,12 @@ Only you (`TELEGRAM_USER_ID`) and the crew members you invite with a single-use 
 <summary><b>Does it use AI or send my data anywhere?</b></summary>
 
 No AI, no API keys, no analytics. Your data stays in `data/workout.db` on your machine. The only outside service is the optional healthchecks.io ping, which carries no workout data.
+</details>
+
+<details>
+<summary><b>Who approves quests?</b></summary>
+
+The quest moderator: invite Mom with **/crew → Invite a quest moderator**, or from **Admin** in the app. She gets ✅ Approve / ❌ Reject buttons in Telegram, plus her own view in the app. Until a moderator joins, the owner approves the others' quests, and nobody can ever approve their own.
 </details>
 
 <details>
