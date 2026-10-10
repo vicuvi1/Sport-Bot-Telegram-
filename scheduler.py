@@ -396,9 +396,15 @@ def reschedule_user_jobs(scheduler: AsyncIOScheduler, bot: Bot, user_id: int) ->
         ("crew_auto_roast", crew_service.send_auto_roast,
          CronTrigger(hour=crew_service.AUTO_ROAST_HOUR, minute=0, timezone=tz)),
     ]
+    if not config.FULL_MODE:   # simple mode: only the personal workout jobs
+        social = {"challenge_deadline", "bet_deadline", "crew_auto_roast", "penalty_check"}
+        for name in social | {"wake_check", "wake_deadline"}:
+            if scheduler.get_job(user_job_id(name, user_id)):
+                scheduler.remove_job(user_job_id(name, user_id))
+        jobs = [j for j in jobs if j[0] not in social]
     # Wake-up challenge: the check at their wake time, and its deadline.
     with as_user(user_id):
-        wake_on, wake_at = wake_service.wake_enabled(), wake_service.wake_time()
+        wake_on, wake_at = wake_service.wake_enabled() and config.FULL_MODE, wake_service.wake_time()
     for name in ("wake_check", "wake_deadline"):
         if scheduler.get_job(user_job_id(name, user_id)):
             scheduler.remove_job(user_job_id(name, user_id))
@@ -447,21 +453,23 @@ def schedule_global_jobs(scheduler: AsyncIOScheduler, bot: Bot) -> None:
     # Crew live feed: deliver anything not sent right away (e.g. after an error).
     scheduler.add_job(crew_service.tick, trigger=IntervalTrigger(minutes=1),
                       id="crew_events", args=[bot], replace_existing=True)
-    # Crew competition: Sunday results + forfeit, Monday auto-pick if the winner didn't.
-    scheduler.add_job(run_as, trigger=CronTrigger(day_of_week="sun", hour=20, minute=30, timezone=tz),
-                      id="crew_weekly_results", args=[owner, compete_service.send_weekly_results, bot],
-                      replace_existing=True)
-    scheduler.add_job(run_as, trigger=CronTrigger(day_of_week="mon", hour=12, minute=0, timezone=tz),
-                      id="crew_forfeit_autopick", args=[owner, compete_service.auto_pick_forfeits, bot],
-                      replace_existing=True)
-    # Monthly season: champion announced on the 1st.
-    scheduler.add_job(run_as, trigger=CronTrigger(day=1, hour=9, minute=0, timezone=tz),
-                      id="crew_season_results", args=[owner, progression_service.send_season_results, bot],
-                      replace_existing=True)
-    # Monthly report cards on the 1st, right after the season results.
-    scheduler.add_job(run_as, trigger=CronTrigger(day=1, hour=9, minute=5, timezone=tz),
-                      id="crew_report_cards", args=[owner, social_service.send_report_cards, bot],
-                      replace_existing=True)
+    # Crew and monthly extras: only in BOT_MODE=full (simple mode stays quiet).
+    if config.FULL_MODE:
+        # Crew competition: Sunday results + forfeit, Monday auto-pick if the winner didn't.
+        scheduler.add_job(run_as, trigger=CronTrigger(day_of_week="sun", hour=20, minute=30, timezone=tz),
+                          id="crew_weekly_results", args=[owner, compete_service.send_weekly_results, bot],
+                          replace_existing=True)
+        scheduler.add_job(run_as, trigger=CronTrigger(day_of_week="mon", hour=12, minute=0, timezone=tz),
+                          id="crew_forfeit_autopick", args=[owner, compete_service.auto_pick_forfeits, bot],
+                          replace_existing=True)
+        # Monthly season: champion announced on the 1st.
+        scheduler.add_job(run_as, trigger=CronTrigger(day=1, hour=9, minute=0, timezone=tz),
+                          id="crew_season_results", args=[owner, progression_service.send_season_results, bot],
+                          replace_existing=True)
+        # Monthly report cards on the 1st, right after the season results.
+        scheduler.add_job(run_as, trigger=CronTrigger(day=1, hour=9, minute=5, timezone=tz),
+                          id="crew_report_cards", args=[owner, social_service.send_report_cards, bot],
+                          replace_existing=True)
     # Proof clips are only kept for a month, so the disk never fills up.
     scheduler.add_job(social_service.cleanup_proofs_job, trigger=CronTrigger(hour=4, minute=30, timezone=tz),
                       id="proof_cleanup", args=[bot], replace_existing=True)

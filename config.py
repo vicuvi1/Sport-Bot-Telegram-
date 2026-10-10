@@ -44,5 +44,12 @@ except ValueError:
     WEBAPP_PORT = 8080
 WEBAPP_URL = os.getenv("WEBAPP_URL", f"http://localhost:{WEBAPP_PORT}").strip()
 WEBAPP_DIR = BASE_DIR / "webapp"
-WEBAPP_ENABLED = WEBAPP_URL.startswith("https://")
+
+# BOT_MODE=simple (default): a plain workout bot. Today, Progress, History,
+# Settings and logging by typing ("35 push-ups"); no Mini App, and the crew,
+# duel, wake-up, points, quests and level features stay quiet and hidden.
+# BOT_MODE=full turns everything back on (the code is all still here).
+BOT_MODE = os.getenv("BOT_MODE", "simple").strip().lower()
+FULL_MODE = BOT_MODE == "full"
+WEBAPP_ENABLED = FULL_MODE and WEBAPP_URL.startswith("https://")
 
