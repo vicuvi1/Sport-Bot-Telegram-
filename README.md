@@ -5,7 +5,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/telegram-bot%20%2B%20mini%20app-26A5E4?style=flat-square&logo=telegram&logoColor=white" alt="Telegram bot and Mini App">
-  <img src="https://img.shields.io/badge/tests-327%20passing-22c55e?style=flat-square" alt="327 tests passing">
+  <img src="https://img.shields.io/badge/tests-346%20passing-22c55e?style=flat-square" alt="346 tests passing">
   <img src="https://img.shields.io/badge/frontend-no%20build%20step-C8F135?style=flat-square" alt="No build step">
   <img src="https://img.shields.io/badge/AI-none%2C%20no%20API%20keys-0ea5e9?style=flat-square" alt="No AI, no API keys">
   <img src="https://img.shields.io/badge/license-MIT-a855f7?style=flat-square" alt="MIT license">
@@ -65,7 +65,7 @@ Tap **+5** and watch the number pop, chain a **combo**, finish with confetti. Or
 | 🎯 **It adapts to you** | Tell it a workout was *too easy* or *too hard* and your targets change. After a break it eases you back in at 70% → 85% → 100%. Skill ladders turn 60 push-ups into diamond push-ups. |
 | 🧪 **It proves you're changing** | A 10-minute fitness test on the 1st of every month (*push-ups 18 → 24 → 31*), weekly weight trends and private then-and-now photos. Real numbers, not just streaks. |
 | 🎮 **It's fun to open** | An anime layer you can switch off: a mascot that breathes and jumps on every rep, ranks E → S, unlockable gear, monthly champion titles. |
-| 🛡 **It runs for years** | Verified backups, error reports in Telegram, an outside alarm if the server dies, and 327 automated tests. |
+| 🛡 **It runs for years** | Verified backups, error reports in Telegram, an outside alarm if the server dies, and 346 automated tests. |
 | 🔒 **It's yours** | One SQLite file on your server. No AI, no API keys, no tracking, no subscription. |
 
 ---
@@ -151,7 +151,10 @@ TIMEZONE=Europe/Chisinau
 WORKOUT_TIME=07:00
 HEALTHCHECK_URL=            # optional, see "Outside alarm" below
 WEBAPP_URL=                 # optional, https address for the Mini App (see below)
+BOT_MODE=simple             # simple (default): plain workout bot · full: crew, duel, quests, Mini App
 ```
+
+**Two modes:** `BOT_MODE=simple` (the default) is a plain workout bot: Today, Progress, History, Settings, and logging by just typing *35 push-ups*, *squats 50* or *plank 2 min*. `BOT_MODE=full` turns on everything on this page (crew, duel, quests, the System, the Mini App).
 
 Open your bot in Telegram and send **`/start`**. Then **`/crew`** → **Invite** to bring your brother in. 🎉
 
@@ -272,7 +275,7 @@ flowchart LR
 
 - **Python 3.11+**, `python-telegram-bot` 22, `APScheduler` 3, `aiohttp`, SQLite. Pinned dependencies for long-term stability.
 - **The app is plain JavaScript:** no framework, no build step, no npm. Every API call carries Telegram's signed login data, checked on the server.
-- **327 tests** cover crew isolation, the multi-user migration, streaks, pauses, the comeback ramp, the fitness test, chat, bets, proof clips, overtake alerts, admin corrections, quests and approvals, the Daily Quest and penalties, levels, app login, backups and button routing. Run them with `pytest -q`.
+- **346 tests** cover crew isolation, the multi-user migration, streaks, pauses, the comeback ramp, the fitness test, chat, bets, proof clips, overtake alerts, admin corrections, quests and approvals, the Daily Quest and penalties, levels, app login, backups and button routing. Run them with `pytest -q`.
 
 ---
 

@@ -40,6 +40,9 @@ def isolated_global_db(tmp_path, monkeypatch):
     # TELEGRAM_USER_ID, is_authorized() rejects every update and tests fail.
     monkeypatch.setattr(config, "USER_ID", TEST_USER_ID)
 
+    # Most tests exercise the full feature set; simple-mode tests switch it off themselves.
+    monkeypatch.setattr(config, "FULL_MODE", True)
+
     # Start every test as "nobody bound" (= the owner), whatever earlier tests did.
     token = database._current_user.set(None)
 

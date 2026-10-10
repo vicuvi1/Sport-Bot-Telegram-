@@ -48,8 +48,9 @@ def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
     keyboard = [
         [KeyboardButton("🏋️ Today's Workout"), KeyboardButton("📊 Progress")],
         [KeyboardButton("📅 History"), KeyboardButton("⚙️ Settings")],
-        [KeyboardButton("⚔️ Duel"), KeyboardButton("👥 Crew")],
     ]
+    if config.FULL_MODE:
+        keyboard.append([KeyboardButton("⚔️ Duel"), KeyboardButton("👥 Crew")])
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -104,11 +105,11 @@ def build_home_text(first_name: str) -> str:
     else:
         extras.append("🧪 This month's fitness test is waiting: /test")
     # Crew mates' day at a glance.
-    for other in cs.others():
+    for other in (cs.others() if config.FULL_MODE else []):
         snap = cs.day_snapshot(other["user_id"], today_str)
         today = "✅ done" if snap["status"] == "completed" else f"{snap['done']}/{snap['total']}"
         extras.append(f"⚔️ <b>{esc(snap['name'])}</b> · today {today} · 🔥 {snap['streak']}  (/duel)")
-    if is_owner():
+    if is_owner() and config.FULL_MODE:
         partner = ps.get_partner()
         extras.append(f"🤝 Partner: <b>{esc(partner['name'])}</b>" if partner else "🤝 No partner yet: /partner")
     if config.WEBAPP_ENABLED:
@@ -116,9 +117,29 @@ def build_home_text(first_name: str) -> str:
 
     return build_home(sanitize_label(first_name or "", max_length=30), workout, today_str, extras)
 
+SIMPLE_HELP = (
+    "ℹ️ <b>How it works</b>\n\n"
+    "🏋️ <b>Today's Workout</b> (/today): your exercises with progress bars. Tap an exercise for +1/+5/+10, "
+    "or <b>Complete all</b>.\n\n"
+    "✍️ <b>Log by typing</b>: just send what you did:\n"
+    "• <code>35 push-ups</code> or <code>push 35</code>\n"
+    "• <code>30 push 40 squats</code>\n"
+    "• <code>plank 2 min</code> · <code>-10 push</code> to fix a mistake\n"
+    "• a bare number like <code>35</code> asks which exercise\n\n"
+    "📊 <b>Progress</b> (/progress): today, week, month, all time. 📅 <b>History</b> (/history): the 4-week heatmap.\n\n"
+    "⚙️ <b>Settings</b> (/settings): reminder time, timezone, exercises and targets (change push-ups to 100, add new ones).\n\n"
+    "More: /pause for a vacation, /test for the monthly fitness test, /summary, /badges, /export, /backup, /status.\n\n"
+    "Rest days never break your streak. 💪"
+)
+
+
 async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles the /help command."""
     if not is_authorized(update):
+        return
+
+    if not config.FULL_MODE:
+        await update.message.reply_text(SIMPLE_HELP, reply_markup=get_main_menu_keyboard(), parse_mode="HTML")
         return
 
     help_text = (

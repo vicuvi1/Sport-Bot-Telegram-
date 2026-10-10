@@ -191,6 +191,7 @@ def build_today_workout_view(workout: Dict[str, Any], date_str: str,
         lines.append(f"<b>All {len(items)} done</b> · {streak}")
     else:
         lines.append(f"<b>{done_count} of {len(items)} done</b> · {streak}")
+        lines.append("<i>✍️ Or just type it: 35 push-ups</i>")
 
     keyboard: List[List[InlineKeyboardButton]] = []
     if all_completed:

@@ -37,6 +37,7 @@ from handlers.settings import (
 from handlers.status import status_handler, get_version
 from handlers.crew import crew_command_handler, crew_callback_handler, duel_command_handler
 from handlers.quests import quests_callback_handler, quests_command_handler, review_callback_handler
+from handlers.quicklog import quick_log_callback_handler, quick_log_handler
 from handlers.wake import wake_command_handler, wake_callback_handler, wake_time_text_input
 from handlers.compete import challenge_command_handler, compete_callback_handler, points_command_handler
 from handlers.fitness import (
@@ -92,10 +93,10 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     elif text == "📅 History":
         await history_handler(update, context)
         return
-    elif text == "⚔️ Duel":
+    elif text == "⚔️ Duel" and config.FULL_MODE:
         await duel_command_handler(update, context)
         return
-    elif text == "👥 Crew":
+    elif text == "👥 Crew" and config.FULL_MODE:
         await crew_command_handler(update, context)
         return
     elif text == "⚙️ Settings":
@@ -124,10 +125,16 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if await settings_text_input_handler(update, context):
         return
 
+    # "35 push-ups", "squats 50", "plank 2 min": log it straight away.
+    if await quick_log_handler(update, context):
+        return
+
     # Fallback response for unhandled text
     await update.message.reply_text(
-        "👋 Use the buttons below or send /help to view available commands.",
-        parse_mode="Markdown"
+        "👋 To log reps, just type them, e.g. <b>35 push-ups</b> or <b>squats 50</b>.\n"
+        "Or use the buttons below, and /help for everything else.",
+        parse_mode="HTML",
+        reply_markup=get_main_menu_keyboard(),
     )
 
 async def cancel_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -277,7 +284,12 @@ async def on_startup(application) -> None:
 async def start_mini_app(application) -> None:
     """Serves the Mini App and puts an "App" button next to the message box."""
     if not config.WEBAPP_ENABLED:
-        logger.info("Mini App off (WEBAPP_URL is not https://).")
+        logger.info("Mini App off (%s).", "BOT_MODE is simple" if not config.FULL_MODE else "WEBAPP_URL is not https://")
+        try:  # remove an "App" button left over from when the app was on
+            from telegram import MenuButtonCommands
+            await application.bot.set_chat_menu_button(menu_button=MenuButtonCommands())
+        except Exception as e:
+            logger.warning("Could not reset the menu button: %s", e)
         return
     from telegram import MenuButtonWebApp, WebAppInfo
     from webapp.server import start_webapp_server
@@ -334,6 +346,7 @@ WAKE_CALLBACK_PATTERN = r"^wake[_:]"
 COMPETE_CALLBACK_PATTERN = r"^cmp_"
 QUESTS_CALLBACK_PATTERN = r"^qst_(done:\d+|refresh)$"
 REVIEW_CALLBACK_PATTERN = r"^quest_(ok|no):\d+$"
+QUICKLOG_CALLBACK_PATTERN = r"^qlog:\d+:-?\d+$"
 
 
 def _log_callback(namespace: str, data: str, duration: float) -> None:
@@ -481,6 +494,8 @@ def register_handlers(app) -> None:
                                          pattern=WAKE_CALLBACK_PATTERN))
     app.add_handler(CallbackQueryHandler(_timed("compete", compete_callback_handler),
                                          pattern=COMPETE_CALLBACK_PATTERN))
+    app.add_handler(CallbackQueryHandler(_timed("quicklog", quick_log_callback_handler),
+                                         pattern=QUICKLOG_CALLBACK_PATTERN))
     app.add_handler(CallbackQueryHandler(_timed("quests", quests_callback_handler),
                                          pattern=QUESTS_CALLBACK_PATTERN))
     # Pressed by the quest moderator (Mom), who isn't a crew member: checked inside.

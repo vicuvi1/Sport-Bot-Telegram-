@@ -290,7 +290,13 @@ TICK_HOOKS = []
 
 
 async def tick(bot) -> None:
-    """Runs after every workout action and once a minute: feed, then hooks."""
+    """Runs after every workout action and once a minute: feed, then hooks.
+    In simple mode (config.FULL_MODE off) the crew stays quiet: events are dropped."""
+    import config
+    if not config.FULL_MODE:
+        for event in pending_events():
+            mark_delivered(event["id"])
+        return
     await deliver_events(bot)
     for hook in TICK_HOOKS:
         try:
