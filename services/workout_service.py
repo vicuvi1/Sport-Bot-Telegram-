@@ -523,6 +523,162 @@ def update_workout_item(
         updated_item = dict(cursor.fetchone())
         return updated_item, progression_info
 
+def update_today_item_target(
+    item_id: int,
+    new_target: int,
+    db_path: Optional[Path] = None,
+) -> Optional[Dict[str, Any]]:
+    """Updates target repetitions for an item in today's workout."""
+    now_iso = local_now_iso(db_path)
+    new_target = max(1, int(new_target))
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT wi.* FROM workout_items wi
+            JOIN daily_workouts dw ON dw.id = wi.daily_workout_id
+            WHERE wi.id = ? AND dw.user_id = ?;
+            """,
+            (item_id, current_user_id()),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return None
+        item = dict(row)
+        completed = item["completed_reps"]
+        new_status = "completed" if completed >= new_target else ("skipped" if item["status"] == "skipped" else "pending")
+        cursor.execute(
+            """
+            UPDATE workout_items
+            SET target_reps = ?, status = ?, updated_at = ?
+            WHERE id = ?;
+            """,
+            (new_target, new_status, now_iso, item_id),
+        )
+        _refresh_workout_status(cursor, item["daily_workout_id"], now_iso)
+        conn.commit()
+
+        cursor.execute("SELECT * FROM workout_items WHERE id = ?;", (item_id,))
+        return dict(cursor.fetchone())
+
+def add_today_workout_item(
+    exercise_name: str,
+    target_reps: int,
+    unit: str = "reps",
+    today_str: Optional[str] = None,
+    db_path: Optional[Path] = None,
+) -> Dict[str, Any]:
+    """Adds an exercise to today's workout on the fly. Ensures it exists in catalog."""
+    today_str = today_str or get_current_date_str(db_path=db_path)
+    workout = get_or_create_daily_workout(today_str, db_path=db_path)
+    clean_name = sanitize_label(exercise_name)
+    clean_unit = sanitize_label(unit, max_length=12) or "reps"
+    now_iso = local_now_iso(db_path)
+    target_reps = max(1, int(target_reps))
+
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT * FROM exercises WHERE user_id = ? AND LOWER(name) = LOWER(?);",
+            (current_user_id(), clean_name),
+        )
+        ex_row = cursor.fetchone()
+        if ex_row:
+            exercise_id = ex_row["id"]
+            clean_name = ex_row["name"]
+            clean_unit = ex_row["unit"]
+        else:
+            cursor.execute(
+                """
+                INSERT INTO exercises (user_id, name, target_reps, unit, is_active, days_of_week, created_at)
+                VALUES (?, ?, ?, ?, 1, '0,1,2,3,4,5,6', ?);
+                """,
+                (current_user_id(), clean_name, target_reps, clean_unit, now_iso),
+            )
+            exercise_id = cursor.lastrowid
+
+        cursor.execute(
+            """
+            INSERT INTO workout_items (
+                daily_workout_id, exercise_id, exercise_name, target_reps, completed_reps, unit, status, updated_at
+            ) VALUES (?, ?, ?, ?, 0, ?, 'pending', ?);
+            """,
+            (workout["id"], exercise_id, clean_name, target_reps, clean_unit, now_iso),
+        )
+        item_id = cursor.lastrowid
+
+        if workout["status"] in ("rest", "skipped", "completed"):
+            cursor.execute(
+                "UPDATE daily_workouts SET status = 'pending', completed_at = NULL WHERE id = ?;",
+                (workout["id"],),
+            )
+        _refresh_workout_status(cursor, workout["id"], now_iso)
+        conn.commit()
+
+        cursor.execute("SELECT * FROM workout_items WHERE id = ?;", (item_id,))
+        return dict(cursor.fetchone())
+
+def swap_today_workout_item(
+    old_name: str,
+    new_name: str,
+    new_target: Optional[int] = None,
+    today_str: Optional[str] = None,
+    db_path: Optional[Path] = None,
+) -> Optional[Dict[str, Any]]:
+    """Swaps an exercise in today's workout with a different movement."""
+    today_str = today_str or get_current_date_str(db_path=db_path)
+    workout = get_or_create_daily_workout(today_str, db_path=db_path)
+    clean_new = sanitize_label(new_name)
+    now_iso = local_now_iso(db_path)
+
+    old_item = None
+    for it in workout["items"]:
+        if old_name.lower() in it["exercise_name"].lower() or it["exercise_name"].lower() in old_name.lower():
+            old_item = it
+            break
+
+    if not old_item:
+        return None
+
+    with get_connection(db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT * FROM exercises WHERE user_id = ? AND LOWER(name) = LOWER(?);",
+            (current_user_id(), clean_new),
+        )
+        ex_row = cursor.fetchone()
+        if ex_row:
+            exercise_id = ex_row["id"]
+            clean_new = ex_row["name"]
+            unit = ex_row["unit"]
+            target = new_target or ex_row["target_reps"]
+        else:
+            unit = "sec" if "plank" in clean_new.lower() else "reps"
+            target = new_target or (60 if unit == "sec" else old_item["target_reps"])
+            cursor.execute(
+                """
+                INSERT INTO exercises (user_id, name, target_reps, unit, is_active, days_of_week, created_at)
+                VALUES (?, ?, ?, ?, 1, '0,1,2,3,4,5,6', ?);
+                """,
+                (current_user_id(), clean_new, target, unit, now_iso),
+            )
+            exercise_id = cursor.lastrowid
+
+        cursor.execute(
+            """
+            UPDATE workout_items
+            SET exercise_id = ?, exercise_name = ?, target_reps = ?, completed_reps = 0, unit = ?, status = 'pending', updated_at = ?
+            WHERE id = ?;
+            """,
+            (exercise_id, clean_new, target, unit, now_iso, old_item["id"]),
+        )
+        _refresh_workout_status(cursor, workout["id"], now_iso)
+        conn.commit()
+
+        cursor.execute("SELECT * FROM workout_items WHERE id = ?;", (old_item["id"],))
+        return dict(cursor.fetchone())
+
+
 # ============================================================================
 # AUTOMATIC PROGRESSION LOGIC
 # ============================================================================

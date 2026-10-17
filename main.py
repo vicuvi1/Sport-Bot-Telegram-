@@ -102,6 +102,9 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     elif text == "⚙️ Settings":
         await settings_handler(update, context)
         return
+    elif text in ("💧 Water", "💧 Hydration", "💧 Hydration Tracker"):
+        await water_command_handler(update, context)
+        return
     elif text == "💾 Backup Data":
         await backup_command_handler(update, context)
         return
@@ -146,9 +149,46 @@ async def cancel_command_handler(update: Update, context: ContextTypes.DEFAULT_T
     if not is_authorized(update):
         return
     was_waiting = bool(context.user_data.pop("awaiting_reps_item_id", None))
+    was_waiting = bool(context.user_data.pop("awaiting_today_target_item_id", None)) or was_waiting
     was_waiting = bool(context.user_data.pop("awaiting_setting", None)) or was_waiting
     was_waiting = bool(context.user_data.pop("fitness_test", None)) or was_waiting
     await update.message.reply_text("❌ Cancelled." if was_waiting else "Nothing to cancel.")
+
+async def water_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles the /water command or Water button."""
+    if not is_authorized(update):
+        return
+    from services.water_service import get_today_water, build_water_view
+    status = get_today_water()
+    text, markup = build_water_view(status)
+    if update.message:
+        await update.message.reply_text(text, reply_markup=markup, parse_mode="HTML")
+    elif update.callback_query:
+        await update.callback_query.edit_message_text(text, reply_markup=markup, parse_mode="HTML")
+
+async def water_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles interactive hydration buttons (+250ml, +500ml, refresh)."""
+    if not is_authorized(update):
+        return
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+
+    from services.water_service import get_today_water, log_water, build_water_view
+    if data.startswith("water_log:"):
+        amount = int(data.split(":")[1])
+        status = log_water(amount)
+        mark = "💧 Added" if amount > 0 else "➖ Subtracted"
+        intro = f"{mark} <b>{abs(amount)} ml</b> of water."
+        text, markup = build_water_view(status, intro=intro)
+        await query.edit_message_text(text, reply_markup=markup, parse_mode="HTML")
+        return
+
+    if data == "refresh_water":
+        status = get_today_water()
+        text, markup = build_water_view(status)
+        await query.edit_message_text(text, reply_markup=markup, parse_mode="HTML")
+        return
 
 async def summary_command_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles /summary: this week's summary on demand (also sent Sundays at 20:00)."""
@@ -329,14 +369,15 @@ async def on_shutdown(application) -> None:
 # deliberately NO generic catch-all CallbackQueryHandler: an unmatched callback
 # must never be silently swallowed by another feature's handler.
 WORKOUT_CALLBACK_PATTERN = (
-    r"^(ex_(view|done|skip|delta|enter):|refresh_today$|complete_all$"
+    r"^(ex_(view|done|skip|delta|enter|target):|refresh_today$|complete_all$"
     r"|start_timer:|snooze_reminder$|quick_workout$|quick_undo$|fb:)"
 )
 STATS_CALLBACK_PATTERN = r"^stats_(period:|show_|export_)"
 SETTINGS_CALLBACK_PATTERN = (
     r"^(menu_|toggle_|set_|manage_ex:|edit_ex_target:|del_ex_"
-    r"|add_exercise_prompt$|backup_db$)"
+    r"|add_exercise_prompt$|backup_db$|prompt_water_target$|reset_water_target$)"
 )
+WATER_CALLBACK_PATTERN = r"^(water_log:(-?\d+)|refresh_water$)"
 
 FITNESS_CALLBACK_PATTERN = r"^test_(menu$|start$|skip$|stop$|history$|toggle_pullups$|timer:)"
 PARTNER_CALLBACK_PATTERN = r"^partner_(menu$|invite$|remove$|remove_confirm$|toggle:)"
@@ -475,11 +516,14 @@ def register_handlers(app) -> None:
     app.add_handler(CommandHandler("wake", wake_command_handler))
     app.add_handler(CommandHandler("challenge", challenge_command_handler))
     app.add_handler(CommandHandler("points", points_command_handler))
+    app.add_handler(CommandHandler("water", water_command_handler))
 
     # 2. Callback query handlers — one explicit namespace each, plus a final
     #    fallback that only answers callbacks none of them claimed.
     app.add_handler(CallbackQueryHandler(_timed("workout", workout_callback_handler),
                                          pattern=WORKOUT_CALLBACK_PATTERN))
+    app.add_handler(CallbackQueryHandler(_timed("water", water_callback_handler),
+                                         pattern=WATER_CALLBACK_PATTERN))
     app.add_handler(CallbackQueryHandler(_timed("stats", stats_callback_handler),
                                          pattern=STATS_CALLBACK_PATTERN))
     app.add_handler(CallbackQueryHandler(_timed("settings", settings_callback_handler),

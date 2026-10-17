@@ -29,6 +29,9 @@ from services.workout_service import (
     MAX_PAUSE_DAYS
 )
 
+from services.quote_service import PERSONAS
+from services.water_service import get_water_target
+
 logger = logging.getLogger(__name__)
 
 def build_settings_menu() -> tuple[str, InlineKeyboardMarkup]:
@@ -39,6 +42,12 @@ def build_settings_menu() -> tuple[str, InlineKeyboardMarkup]:
     prog_enabled = get_setting("auto_progression_enabled", "0") == "1"
     prog_pct = get_setting("progression_percentage", "5")
     consec = get_setting("progression_consecutive_workouts", "3")
+
+    persona_key = get_setting("coach_persona", "beast")
+    persona_info = PERSONAS.get(persona_key, PERSONAS["beast"])
+    water_enabled = get_setting("water_reminders_enabled", "1") == "1"
+    water_target = get_water_target()
+    morning_water = get_setting("morning_water_time", "06:30")
 
     exercises = get_exercises()
     active_count = sum(1 for e in exercises if e["is_active"] == 1)
@@ -52,6 +61,8 @@ def build_settings_menu() -> tuple[str, InlineKeyboardMarkup]:
         "",
         card([
             f"🔔 Reminders  {on_off(notif_enabled)} · {esc(workout_time)} <i>({esc(timezone)})</i>",
+            f"{persona_info['icon']} Coach  <b>{esc(persona_info['name'])}</b>",
+            f"💧 Hydration  {on_off(water_enabled)} · {water_target:,} ml/day ({morning_water} AM)",
             f"🏋️ Exercises  <b>{active_count}</b> active of {len(exercises)}",
             f"🚀 Auto-progression  {on_off(prog_enabled)} · +{esc(prog_pct)}% after {esc(consec)} workouts",
             f"🏖 Pause  " + (f"<b>until {nice_date(pause['end_date'])}</b>" if pause else "Off"),
@@ -63,6 +74,10 @@ def build_settings_menu() -> tuple[str, InlineKeyboardMarkup]:
         [
             InlineKeyboardButton("🔔 Reminders: " + ("On" if notif_enabled else "Off"), callback_data="toggle_notif"),
             InlineKeyboardButton(f"⏰ {workout_time}", callback_data="menu_time"),
+        ],
+        [
+            InlineKeyboardButton(f"{persona_info['icon']} Coach: {persona_info['name']}", callback_data="menu_persona"),
+            InlineKeyboardButton("💧 Water: " + ("On" if water_enabled else "Off"), callback_data="menu_water_settings"),
         ],
         [
             InlineKeyboardButton("🏋️ Exercises", callback_data="menu_exercises"),
@@ -84,6 +99,61 @@ def build_settings_menu() -> tuple[str, InlineKeyboardMarkup]:
         keyboard.append([InlineKeyboardButton("💾 Backup", callback_data="backup_db")])
 
     return text, InlineKeyboardMarkup(keyboard)
+
+
+def build_persona_menu() -> tuple[str, InlineKeyboardMarkup]:
+    """Coaching persona selection menu."""
+    current = get_setting("coach_persona", "beast")
+    lines = [
+        "🎭 <b>Select Your Coaching Persona</b>\n",
+        "Your coach provides motivational quotes in morning workouts and real-time hype during training sets:\n",
+    ]
+    for key, info in PERSONAS.items():
+        check = " (Active ✅)" if key == current else ""
+        lines.append(f"{info['icon']} <b>{esc(info['name'])}</b>{check}\n<i>{esc(info['description'])}</i>\n")
+    keyboard = [
+        [
+            InlineKeyboardButton("🦍 Beast Mode", callback_data="set_persona:beast"),
+            InlineKeyboardButton("🏛 Stoic Master", callback_data="set_persona:stoic"),
+        ],
+        [
+            InlineKeyboardButton("⚔️ The System", callback_data="set_persona:system"),
+            InlineKeyboardButton("🥊 Elite Athlete", callback_data="set_persona:athlete"),
+        ],
+        [InlineKeyboardButton("⬅️ Back to Settings", callback_data="menu_settings")],
+    ]
+    return "\n".join(lines), InlineKeyboardMarkup(keyboard)
+
+
+def build_water_settings_menu() -> tuple[str, InlineKeyboardMarkup]:
+    """Hydration tracker configuration menu."""
+    water_enabled = get_setting("water_reminders_enabled", "1") == "1"
+    target = get_water_target()
+    morning_time = get_setting("morning_water_time", "06:30")
+    on_off = "<b>On</b>" if water_enabled else "Off"
+
+    lines = [
+        "💧 <b>Hydration Settings</b>\n",
+        card([
+            f"🔔 Reminders  {on_off}",
+            f"⏰ Morning Water  <b>{esc(morning_time)} AM</b>",
+            f"🎯 Daily Target  <b>{target:,} ml</b> (~{round(target/250)} glasses)",
+            "⚖️ Body Profile  186 cm / 75 kg (calibrated)",
+        ]),
+        "\n<i>Morning reminder triggers at 06:30 AM to jumpstart metabolism. Daytime check-ins help you hit your goal.</i>",
+    ]
+    keyboard = [
+        [
+            InlineKeyboardButton("🔔 Reminders: " + ("On" if water_enabled else "Off"), callback_data="toggle_water_notif"),
+            InlineKeyboardButton(f"⏰ Morning: {morning_time}", callback_data="menu_water_time"),
+        ],
+        [
+            InlineKeyboardButton(f"🎯 Target: {target}ml", callback_data="prompt_water_target"),
+            InlineKeyboardButton("⚖️ Reset for 75kg", callback_data="reset_water_target"),
+        ],
+        [InlineKeyboardButton("⬅️ Back to Settings", callback_data="menu_settings")],
+    ]
+    return "\n".join(lines), InlineKeyboardMarkup(keyboard)
 
 PAUSE_PRESETS = [(3, "3 days"), (7, "1 week"), (14, "2 weeks")]
 
@@ -225,6 +295,92 @@ async def settings_callback_handler(update: Update, context: ContextTypes.DEFAUL
         pct = data.split(":")[1]
         set_setting("progression_percentage", pct)
         text, markup = build_settings_menu()
+        await query.edit_message_text(text, reply_markup=markup, parse_mode=HTML)
+        return
+
+    if data == "menu_persona":
+        text, markup = build_persona_menu()
+        await query.edit_message_text(text, reply_markup=markup, parse_mode=HTML)
+        return
+
+    if data.startswith("set_persona:"):
+        persona = data.split(":")[1]
+        set_setting("coach_persona", persona)
+        text, markup = build_settings_menu()
+        await query.edit_message_text(text, reply_markup=markup, parse_mode=HTML)
+        return
+
+    if data == "menu_water_settings":
+        text, markup = build_water_settings_menu()
+        await query.edit_message_text(text, reply_markup=markup, parse_mode=HTML)
+        return
+
+    if data == "toggle_water_notif":
+        current = get_setting("water_reminders_enabled", "1")
+        new_val = "0" if current == "1" else "1"
+        set_setting("water_reminders_enabled", new_val)
+        scheduler = context.bot_data.get("scheduler")
+        if scheduler:
+            from scheduler import reschedule_daily_job
+            reschedule_daily_job(scheduler, context.bot)
+        text, markup = build_water_settings_menu()
+        await query.edit_message_text(text, reply_markup=markup, parse_mode=HTML)
+        return
+
+    if data == "menu_water_time":
+        current_time = get_setting("morning_water_time", "06:30")
+        text = (
+            f"⏰ <b>Morning Hydration Reminder Time</b>\n\n"
+            f"Current time: <code>{esc(current_time)} AM</code>\n\n"
+            f"Drinking 500 ml immediately upon waking jumpstarts your metabolism and brain function. Pick a preset or enter custom time:"
+        )
+        keyboard = [
+            [
+                InlineKeyboardButton("06:00 AM", callback_data="set_mwater_time:06:00"),
+                InlineKeyboardButton("06:30 AM (Recommended)", callback_data="set_mwater_time:06:30"),
+            ],
+            [
+                InlineKeyboardButton("07:00 AM", callback_data="set_mwater_time:07:00"),
+                InlineKeyboardButton("07:30 AM", callback_data="set_mwater_time:07:30"),
+            ],
+            [InlineKeyboardButton("✏️ Custom Time", callback_data="set_water_time_custom")],
+            [InlineKeyboardButton("⬅️ Back to Water Settings", callback_data="menu_water_settings")],
+        ]
+        await query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=HTML)
+        return
+
+    if data.startswith("set_mwater_time:"):
+        parts = data.split(":")
+        new_time = f"{parts[1]}:{parts[2]}"
+        set_setting("morning_water_time", new_time)
+        scheduler = context.bot_data.get("scheduler")
+        if scheduler:
+            from scheduler import reschedule_daily_job
+            reschedule_daily_job(scheduler, context.bot)
+        text, markup = build_water_settings_menu()
+        await query.edit_message_text(text, reply_markup=markup, parse_mode=HTML)
+        return
+
+    if data == "set_water_time_custom":
+        context.user_data["awaiting_setting"] = "morning_water_time"
+        await query.message.reply_text(
+            "⏰ Please reply with your desired morning water time in 24-hour format <code>HH:MM</code> (e.g. <code>06:30</code>), or type /cancel.",
+            parse_mode=HTML,
+        )
+        return
+
+    if data == "prompt_water_target":
+        context.user_data["awaiting_setting"] = "water_target"
+        target = get_water_target()
+        await query.message.reply_text(
+            f"🎯 Enter your daily hydration goal in ml (current: {target:,} ml):\n<i>Reply with a number, e.g. 2700, or /cancel.</i>",
+            parse_mode=HTML,
+        )
+        return
+
+    if data == "reset_water_target":
+        set_setting("water_daily_target", "2700")
+        text, markup = build_water_settings_menu()
         await query.edit_message_text(text, reply_markup=markup, parse_mode=HTML)
         return
 
@@ -563,6 +719,38 @@ async def settings_text_input_handler(update: Update, context: ContextTypes.DEFA
         context.user_data.pop("awaiting_setting", None)
         await update.message.reply_text(f"✅ Successfully added *{name}* ({target} {unit}) to your workout catalog!", parse_mode="Markdown")
         s_text, markup = build_settings_menu()
+        await update.message.reply_text(s_text, reply_markup=markup, parse_mode=HTML)
+        return True
+
+    if setting_key == "morning_water_time":
+        if not re.match(r"^([01]?\d|2[0-3]):[0-5]\d$", text):
+            await update.message.reply_text("⚠️ Invalid time format. Please use 24h format like <code>06:30</code>, or type /cancel.", parse_mode=HTML)
+            return True
+        parts = text.split(":")
+        formatted_time = f"{int(parts[0]):02d}:{int(parts[1]):02d}"
+        set_setting("morning_water_time", formatted_time)
+        context.user_data.pop("awaiting_setting", None)
+        scheduler = context.bot_data.get("scheduler")
+        if scheduler:
+            from scheduler import reschedule_daily_job
+            reschedule_daily_job(scheduler, context.bot)
+        await update.message.reply_text(f"✅ Morning water reminder set to <code>{formatted_time}</code>.", parse_mode=HTML)
+        s_text, markup = build_water_settings_menu()
+        await update.message.reply_text(s_text, reply_markup=markup, parse_mode=HTML)
+        return True
+
+    if setting_key == "water_target":
+        try:
+            val = int(text)
+            if val < 500 or val > 10000:
+                raise ValueError()
+        except ValueError:
+            await update.message.reply_text("⚠️ Please enter a realistic daily target in ml between 500 and 10000 (e.g. 2700), or type /cancel.")
+            return True
+        set_setting("water_daily_target", str(val))
+        context.user_data.pop("awaiting_setting", None)
+        await update.message.reply_text(f"✅ Daily water target updated to <b>{val:,} ml</b>.", parse_mode=HTML)
+        s_text, markup = build_water_settings_menu()
         await update.message.reply_text(s_text, reply_markup=markup, parse_mode=HTML)
         return True
 

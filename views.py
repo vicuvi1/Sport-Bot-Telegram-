@@ -218,7 +218,10 @@ def build_today_workout_view(workout: Dict[str, Any], date_str: str,
             label = f"{it['exercise_name']} · {it['completed_reps']}/{it['target_reps']}"
         item_buttons.append(InlineKeyboardButton(label, callback_data=f"ex_view:{it['id']}"))
     keyboard.extend(grid(item_buttons))
-    keyboard.append([quick_toggle_button(is_quick)])
+    keyboard.append([
+        quick_toggle_button(is_quick),
+        InlineKeyboardButton("💧 Water", callback_data="refresh_water"),
+    ])
     keyboard.append([
         InlineKeyboardButton("⏱ Rest 60s", callback_data="start_timer:60:Rest"),
         InlineKeyboardButton("⏱ Rest 90s", callback_data="start_timer:90:Rest"),
@@ -229,6 +232,8 @@ def build_today_workout_view(workout: Dict[str, Any], date_str: str,
 
 def build_exercise_detail_view(item: Dict[str, Any]) -> Tuple[str, InlineKeyboardMarkup]:
     """The card for logging one exercise."""
+    from services.quote_service import get_form_cues, get_smart_pacing
+
     unit = unit_label(item["unit"])
     done, target = item["completed_reps"], item["target_reps"]
     if item["status"] == "completed":
@@ -238,11 +243,22 @@ def build_exercise_detail_view(item: Dict[str, Any]) -> Tuple[str, InlineKeyboar
     else:
         status = f"{target - done} {esc(unit)} to go."
 
+    details = []
+    pacing = get_smart_pacing(item["exercise_name"], item["target_reps"])
+    if pacing:
+        details.append(f"<i>{esc(pacing)}</i>")
+    cues = get_form_cues(item["exercise_name"])
+    if cues:
+        details.append("<b>Form cues:</b>\n" + "\n".join(f"• {esc(c)}" for c in cues))
+
+    extra = ("\n\n" + "\n\n".join(details)) if details else ""
+
     text = (
         f"{item_icon(item)} <b>{esc(item['exercise_name'])}</b>\n\n"
         + card([f"<b>{done}</b> / {target} {esc(unit)}",
                 f"{bar(done, target)}  {percent(done, target)}%"])
         + f"\n{status}"
+        + extra
     )
 
     iid = item["id"]
@@ -256,6 +272,7 @@ def build_exercise_detail_view(item: Dict[str, Any]) -> Tuple[str, InlineKeyboar
             InlineKeyboardButton("−1", callback_data=f"ex_delta:{iid}:-1"),
             InlineKeyboardButton("−5", callback_data=f"ex_delta:{iid}:-5"),
             InlineKeyboardButton("✏️ Amount", callback_data=f"ex_enter:{iid}"),
+            InlineKeyboardButton("🎯 Target", callback_data=f"ex_target:{iid}"),
         ],
     ]
     if item["unit"] == "sec" or "plank" in item["exercise_name"].lower():

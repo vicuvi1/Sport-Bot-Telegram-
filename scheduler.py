@@ -66,8 +66,11 @@ async def send_daily_workout_notification(bot: Bot, snoozed: bool = False) -> No
         return
 
     # Greeting above the normal Today screen.
+    from services.quote_service import get_morning_quote
+    persona = get_setting("coach_persona", "beast")
+    quote = get_morning_quote(persona)
     intro = ["⏰ <b>Snoozed reminder:</b> here's today's workout." if snoozed
-             else "☀️ <b>Good morning!</b> Here's today's plan."]
+             else f"☀️ <b>Good morning!</b> Here's today's plan.\n\n<i>{esc(quote)}</i>"]
     yesterday_str = (datetime.strptime(today_str, "%Y-%m-%d").date() - timedelta(days=1)).isoformat()
     if is_date_paused(yesterday_str):
         intro.append("👋 <b>Welcome back!</b> Your streak was kept safe while you were away.")
@@ -87,6 +90,47 @@ async def send_daily_workout_notification(bot: Bot, snoozed: bool = False) -> No
         logger.info(f"Daily workout notification sent successfully for {today_str}.")
     except Exception as e:
         logger.error(f"Error sending daily workout notification: {e}")
+
+async def send_morning_water_notification(bot: Bot) -> None:
+    """Morning water reminder sent at 06:30 AM."""
+    reminders_on = get_setting("water_reminders_enabled", "1")
+    if reminders_on != "1" or not current_user_id():
+        return
+    from services.water_service import get_today_water, build_water_view
+    status = get_today_water()
+    intro = (
+        "💧 <b>Good morning! Hydration Call (06:30 AM)</b>\n\n"
+        "Drinking 500 ml of water right after waking up jumpstarts your metabolism, "
+        "rehydrates your body after sleep, and primes your muscles for today's training.\n\n"
+        "<i>Daily Target: 2,700 ml (calibrated for 75 kg / 186 cm).</i>"
+    )
+    text, markup = build_water_view(status, intro=intro)
+    try:
+        await bot.send_message(chat_id=current_user_id(), text=text, parse_mode=HTML, reply_markup=markup)
+        logger.info("Morning water notification delivered.")
+    except Exception as e:
+        logger.error(f"Failed to send morning water notification: {e}")
+
+async def send_daytime_water_notification(bot: Bot) -> None:
+    """Daytime hydration reminder."""
+    reminders_on = get_setting("water_reminders_enabled", "1")
+    if reminders_on != "1" or not current_user_id():
+        return
+    from services.water_service import get_today_water, build_water_view
+    status = get_today_water()
+    if status["is_completed"]:
+        return
+    intro = (
+        f"💧 <b>Hydration Check-in</b>\n\n"
+        f"Progress: <b>{status['total_ml']:,} / {status['target_ml']:,} ml</b> ({status['percentage']}%).\n"
+        "Have a glass of water to keep your energy and athletic performance high!"
+    )
+    text, markup = build_water_view(status, intro=intro)
+    try:
+        await bot.send_message(chat_id=current_user_id(), text=text, parse_mode=HTML, reply_markup=markup)
+        logger.info("Daytime water notification delivered.")
+    except Exception as e:
+        logger.error(f"Failed to send daytime water notification: {e}")
 
 async def send_evening_nudge_notification(bot: Bot) -> None:
     """Sends an evening streak-saver reminder if today's workout is still incomplete."""
@@ -414,6 +458,32 @@ def reschedule_user_jobs(scheduler: AsyncIOScheduler, bot: Bot, user_id: int) ->
         jobs += [
             ("wake_check", wake_service.send_wake_check, CronTrigger(hour=wh, minute=wm, timezone=tz)),
             ("wake_deadline", wake_service.close_wake_check, CronTrigger(hour=dh, minute=dm, timezone=tz)),
+        ]
+
+    # Water reminder jobs (morning at 06:30 and daytime hydration check-ins)
+    water_jobs = ["daily_morning_water", "daily_water_nudge_midday", "daily_water_nudge_afternoon", "daily_water_nudge_evening"]
+    for wname in water_jobs:
+        if scheduler.get_job(user_job_id(wname, user_id)):
+            scheduler.remove_job(user_job_id(wname, user_id))
+
+    with as_user(user_id):
+        water_on = get_setting("water_reminders_enabled", "1") == "1"
+        morning_water_str = get_setting("morning_water_time", "06:30")
+        try:
+            mwh, mwm = [int(p) for p in morning_water_str.split(":")[:2]]
+        except Exception:
+            mwh, mwm = 6, 30
+
+    if water_on:
+        jobs += [
+            ("daily_morning_water", send_morning_water_notification,
+             CronTrigger(hour=mwh, minute=mwm, timezone=tz)),
+            ("daily_water_nudge_midday", send_daytime_water_notification,
+             CronTrigger(hour=11, minute=30, timezone=tz)),
+            ("daily_water_nudge_afternoon", send_daytime_water_notification,
+             CronTrigger(hour=15, minute=0, timezone=tz)),
+            ("daily_water_nudge_evening", send_daytime_water_notification,
+             CronTrigger(hour=18, minute=30, timezone=tz)),
         ]
 
     for name, func, trigger in jobs:

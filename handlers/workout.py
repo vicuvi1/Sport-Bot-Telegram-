@@ -152,7 +152,16 @@ async def _handle_workout_callback(update: Update, context: ContextTypes.DEFAULT
         prog = None
         if item:
             _, prog = update_workout_item(item_id, completed_reps=item["target_reps"])
-        await show_today(progression_notice(prog))
+        wk = get_or_create_daily_workout(today_str)
+        intro_parts = []
+        if wk["status"] == "completed":
+            from database import get_setting
+            from services.quote_service import get_in_workout_quote
+            persona = get_setting("coach_persona", "beast")
+            intro_parts.append(f"<b>{esc(get_in_workout_quote('victory', persona))}</b>")
+        if prog:
+            intro_parts.append(progression_notice(prog))
+        await show_today("\n".join(intro_parts))
         return
 
     if data.startswith("ex_skip:"):
@@ -167,10 +176,37 @@ async def _handle_workout_callback(update: Update, context: ContextTypes.DEFAULT
         delta = int(parts[2])
         updated_item, prog = update_workout_item(item_id, delta_reps=delta)
         if updated_item:
+            from database import get_setting
+            from services.quote_service import get_in_workout_quote
+            persona = get_setting("coach_persona", "beast")
+            top_parts = []
+            if prog:
+                top_parts.append(progression_notice(prog))
+            if updated_item["completed_reps"] > updated_item["target_reps"]:
+                top_parts.append(f"<b>{esc(get_in_workout_quote('overdelivered', persona))}</b>")
+            elif updated_item["status"] == "completed":
+                wk = get_or_create_daily_workout(today_str)
+                if wk["status"] == "completed":
+                    top_parts.append(f"<b>{esc(get_in_workout_quote('victory', persona))}</b>")
             text, markup = build_exercise_detail_view(updated_item)
-            notice = progression_notice(prog)
-            await query.edit_message_text(f"{notice}\n\n{text}" if notice else text,
-                                          reply_markup=markup, parse_mode=HTML)
+            prefix = ("\n\n".join(top_parts) + "\n\n") if top_parts else ""
+            await query.edit_message_text(f"{prefix}{text}", reply_markup=markup, parse_mode=HTML)
+        return
+
+    if data.startswith("ex_target:"):
+        item_id = int(data.split(":")[1])
+        workout = get_or_create_daily_workout(today_str)
+        item = next((it for it in workout["items"] if it["id"] == item_id), None)
+        if not item:
+            return
+
+        context.user_data["awaiting_today_target_item_id"] = item_id
+        await query.message.reply_text(
+            f"🎯 Enter new target for today's <b>{esc(item['exercise_name'])}</b> "
+            f"(current: {item['target_reps']} {esc(unit_label(item['unit']))}):\n"
+            "<i>Reply with a number, e.g. 75, or /cancel.</i>",
+            parse_mode=HTML
+        )
         return
 
     if data.startswith("ex_enter:"):
@@ -193,7 +229,7 @@ async def _handle_workout_callback(update: Update, context: ContextTypes.DEFAULT
 
 
 async def custom_amount_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """Handles text message input when the user is prompted to enter an exact completion amount."""
+    """Handles text message input when the user is prompted to enter an exact completion amount or new target."""
     if not is_authorized(update):
         return False
     try:
@@ -203,13 +239,43 @@ async def custom_amount_message_handler(update: Update, context: ContextTypes.DE
 
 
 async def _handle_custom_amount(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    today_str = get_current_date_str()
+    text = (update.message.text or "").strip()
+
+    # Handle today's target adjustment prompt
+    target_item_id = context.user_data.get("awaiting_today_target_item_id")
+    if target_item_id:
+        if text.lower() in ("/cancel", "cancel"):
+            context.user_data.pop("awaiting_today_target_item_id", None)
+            view_text, markup = build_today_workout_view(get_or_create_daily_workout(today_str), today_str,
+                                                         intro="❌ Cancelled.")
+            await update.message.reply_text(view_text, reply_markup=markup, parse_mode=HTML)
+            return True
+        try:
+            amount = int(text)
+            if amount <= 0:
+                raise ValueError()
+        except ValueError:
+            await update.message.reply_text("⚠️ Please send a positive number, e.g. 60, or /cancel.")
+            return True
+
+        context.user_data.pop("awaiting_today_target_item_id", None)
+        from services.workout_service import update_today_item_target
+        updated_item = update_today_item_target(target_item_id, amount)
+        if not updated_item:
+            await update.message.reply_text("⚠️ That exercise couldn't be updated.")
+            return True
+
+        intro = f"🎯 Updated today's target for <b>{esc(updated_item['exercise_name'])}</b> to <b>{amount} {esc(unit_label(updated_item['unit']))}</b>."
+        workout = get_or_create_daily_workout(today_str)
+        view_text, markup = build_today_workout_view(workout, today_str, intro=intro)
+        await update.message.reply_text(view_text, reply_markup=markup, parse_mode=HTML)
+        return True
 
     item_id = context.user_data.get("awaiting_reps_item_id")
     if not item_id:
         return False
 
-    text = update.message.text.strip()
-    today_str = get_current_date_str()
     if text.lower() in ("/cancel", "cancel"):
         context.user_data.pop("awaiting_reps_item_id", None)
         view_text, markup = build_today_workout_view(get_or_create_daily_workout(today_str), today_str,
@@ -238,6 +304,17 @@ async def _handle_custom_amount(update: Update, context: ContextTypes.DEFAULT_TY
     notice = progression_notice(prog)
     if notice:
         intro += f"\n{notice}"
+
+    from database import get_setting
+    from services.quote_service import get_in_workout_quote
+    persona = get_setting("coach_persona", "beast")
+    if updated_item["completed_reps"] > updated_item["target_reps"]:
+        intro += f"\n\n<b>{esc(get_in_workout_quote('overdelivered', persona))}</b>"
+    elif updated_item["status"] == "completed":
+        wk = get_or_create_daily_workout(today_str)
+        if wk["status"] == "completed":
+            intro += f"\n\n<b>{esc(get_in_workout_quote('victory', persona))}</b>"
+
     view_text, markup = build_today_workout_view(get_or_create_daily_workout(today_str), today_str, intro=intro)
     await update.message.reply_text(view_text, reply_markup=markup, parse_mode=HTML)
     return True

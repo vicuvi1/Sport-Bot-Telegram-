@@ -5,7 +5,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white" alt="Python 3.11+">
   <img src="https://img.shields.io/badge/telegram-bot%20%2B%20mini%20app-26A5E4?style=flat-square&logo=telegram&logoColor=white" alt="Telegram bot and Mini App">
-  <img src="https://img.shields.io/badge/tests-346%20passing-22c55e?style=flat-square" alt="346 tests passing">
+  <img src="https://img.shields.io/badge/tests-353%20passing-22c55e?style=flat-square" alt="353 tests passing">
   <img src="https://img.shields.io/badge/frontend-no%20build%20step-C8F135?style=flat-square" alt="No build step">
   <img src="https://img.shields.io/badge/AI-none%2C%20no%20API%20keys-0ea5e9?style=flat-square" alt="No AI, no API keys">
   <img src="https://img.shields.io/badge/license-MIT-a855f7?style=flat-square" alt="MIT license">
@@ -15,7 +15,7 @@
 
 <p align="center">
   A self-hosted Telegram bot with a full app inside Telegram: live duels, crew chat, bets, proof clips,<br>
-  targets that adapt to you, and monthly tests that prove you're getting stronger. Your data never leaves your server.
+  targets that adapt to you, hydration tracking, and monthly tests that prove you're getting stronger. Your data never leaves your server.
 </p>
 
 <p align="center">
@@ -25,6 +25,32 @@
   <a href="#-run-it-247-on-a-server">Deploy</a> ·
   <a href="#-faq">FAQ</a>
 </p>
+
+---
+
+## 💧 Personalized Hydration Tracking & 06:30 AM Call
+
+Calibrated for your active body metrics (**75 kg, 186 cm** $\rightarrow$ **2,700 ml** / 11 glasses baseline):
+- **06:30 AM Morning Call:** Reminds you immediately upon waking to drink 500 ml to jumpstart your metabolism and hydrate after sleep.
+- **Daytime check-ins:** Gentle nudges throughout the day to keep your stamina and athletic performance high.
+- **One-tap buttons & natural chat logging:** Tap `[+250ml]` / `[+500ml]`, or simply type `water 250`, `drink 500`, `water 2 glasses`, or `water` for instant status.
+
+## 🦍 Coaching Personas & In-Workout Hype (Zero AI)
+
+Pure Python deterministic motivation tailored to your mindset:
+- **4 Personas:** **Beast Mode** (Goggins / Arnold / Jocko), **Stoic Master** (Marcus Aurelius / Seneca), **The System** (Solo Leveling hunter quests), and **Elite Athlete** (Bruce Lee / calisthenics craft).
+- **Contextual Hype Triggers:** Fires during workouts on *First Blood* (first set logged), *Halfway* (50% total volume), *Overdelivered* (exceeding targets), and *Victory* (all complete).
+- **Form Cues & Smart Pacing:** Instant technique cues for push-ups, squats, sit-ups, plank, dips, and pull-ups. Targets over 20 reps automatically suggest optimal set/rep splits and rest times (e.g. 105 reps split into 3 sets of 35 with 90s rest).
+
+## ✍️ Flexible On-the-Fly Chat Commands
+
+Control your workout on the fly without digging into menus:
+- `35 push-ups` / `push 35` $\rightarrow$ Logs reps instantly
+- `today pushups 80` $\rightarrow$ Adjusts today's target only
+- `target pushups 60` $\rightarrow$ Updates permanent catalog baseline target
+- `add dips 20` $\rightarrow$ Adds a movement to today's workout on the fly
+- `swap sit-ups for plank` $\rightarrow$ Replaces an exercise for today
+- `sick today` / `pause 3 days` / `resume` $\rightarrow$ Freezes streak safely or resumes immediately
 
 ---
 
@@ -167,6 +193,7 @@ Open your bot in Telegram and send **`/start`**. Then **`/crew`** → **Invite**
 | Command | What it does |
 | :--- | :--- |
 | `/today` | Today's workout with progress bars and logging buttons |
+| `/water` | Hydration tracker: progress bar, 06:30 AM morning reminder, daytime check-ins |
 | `/progress` · `/stats` | Stats for today, this week, this month, all time |
 | `/history` | 4-week heatmap and recent workouts |
 | `/summary` | This week's summary on demand |

@@ -11,8 +11,22 @@ from typing import List, Optional, Tuple
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
-from services.workout_service import get_current_date_str, get_or_create_daily_workout, update_workout_item
-from views import HTML, build_today_workout_view, esc, unit_label
+from database import get_setting
+from services.quote_service import get_in_workout_quote
+from services.water_service import build_water_view, get_today_water, log_water
+from services.workout_service import (
+    add_today_workout_item,
+    get_current_date_str,
+    get_exercises,
+    get_or_create_daily_workout,
+    resume_from_pause,
+    start_pause,
+    swap_today_workout_item,
+    update_exercise,
+    update_today_item_target,
+    update_workout_item,
+)
+from views import HTML, build_today_workout_view, esc, nice_date, unit_label
 
 MAX_AMOUNT = 1000
 UNITS = r"(?:s|sec|secs|seconds|m|min|mins|minutes)"
@@ -93,15 +107,173 @@ def _log(found: List[Tuple[dict, int]]) -> List[str]:
     return lines
 
 
+def _calculate_hype(
+    found: List[Tuple[dict, int]],
+    total_before: int,
+    target_before: int,
+    was_pending: bool,
+    today: str,
+) -> Optional[str]:
+    workout_after = get_or_create_daily_workout(today)
+    total_after = sum(it["completed_reps"] for it in workout_after["items"])
+    target_after = sum(it["target_reps"] for it in workout_after["items"])
+    is_completed = workout_after["status"] == "completed"
+
+    persona = get_setting("coach_persona", "beast")
+    found_ids = {f[0]["id"] for f in found}
+    overdelivered = any(it["completed_reps"] > it["target_reps"] for it in workout_after["items"] if it["id"] in found_ids)
+
+    if is_completed and was_pending:
+        return get_in_workout_quote("victory", persona)
+    if overdelivered:
+        return get_in_workout_quote("overdelivered", persona)
+    if target_before > 0 and (total_before / target_before < 0.5) and (target_after > 0 and total_after / target_after >= 0.5):
+        return get_in_workout_quote("halfway", persona)
+    if total_before == 0 and total_after > 0:
+        return get_in_workout_quote("first_blood", persona)
+    return None
+
+
 async def _rest_day_reply(update: Update) -> None:
     await update.message.reply_text("Today is a rest or paused day, so there's nothing to log. 🌿")
 
 
-async def quick_log_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """Logs typed amounts. Returns False when the text isn't a workout log."""
+async def handle_flexible_commands(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Parses on-the-fly commands: water logging, pauses, targets, adding/swapping movements."""
     text = (update.message.text or "").strip()
+    clean = text.lower()
+    today = get_current_date_str()
+
+    # 1. Hydration view & logging
+    if clean in ("water", "drink", "hydration", "💧"):
+        status = get_today_water()
+        card_text, markup = build_water_view(status)
+        await update.message.reply_text(card_text, reply_markup=markup, parse_mode=HTML)
+        return True
+
+    # e.g. "water 250", "drink 500", "water +500", "500ml", "water 2 glasses"
+    m_water = (
+        re.match(r"^(?:water|drink)\s*([+-]?\d{2,4})\s*(?:ml)?$", text, re.IGNORECASE)
+        or re.match(r"^([+-]?\d{2,4})\s*ml$", text, re.IGNORECASE)
+        or re.match(r"^(?:water|drink)\s*(\d{1,2})\s*glass(?:es)?$", text, re.IGNORECASE)
+    )
+    if m_water:
+        multiplier = 250 if "glass" in clean else 1
+        amount = int(m_water.group(1)) * multiplier
+        status = log_water(amount)
+        mark = "💧 Added" if amount > 0 else "➖ Subtracted"
+        intro = f"{mark} <b>{abs(amount)} ml</b> of water!"
+        card_text, markup = build_water_view(status, intro=intro)
+        await update.message.reply_text(card_text, reply_markup=markup, parse_mode=HTML)
+        return True
+
+    # 2. Quick Vacation / Sick Pause
+    if clean in ("sick today", "pause today", "sick", "feeling sick"):
+        pause = start_pause(1)
+        await update.message.reply_text(
+            f"🏖 Rest up and recover! Workouts are paused for 1 day (until <b>{nice_date(pause['end_date'])}</b>).\n"
+            "Your streak is safe and frozen. 🌿",
+            parse_mode=HTML
+        )
+        return True
+
+    m_pause = re.match(r"^pause\s+(\d{1,2})(?:\s*days?)?$", text, re.IGNORECASE)
+    if m_pause:
+        days = int(m_pause.group(1))
+        pause = start_pause(days)
+        await update.message.reply_text(
+            f"🏖 Workouts paused for {days} days (until <b>{nice_date(pause['end_date'])}</b>).\n"
+            "No reminders will be sent and your streak is frozen. 🌿",
+            parse_mode=HTML
+        )
+        return True
+
+    if clean in ("resume", "unpause", "resume workout", "resume workouts"):
+        resumed = resume_from_pause()
+        workout = get_or_create_daily_workout(today)
+        intro = "▶️ <b>Welcome back!</b> Pause ended and training resumed." if resumed else "You were not paused."
+        view, markup = build_today_workout_view(workout, today, intro=intro)
+        await update.message.reply_text(view, reply_markup=markup, parse_mode=HTML)
+        return True
+
+    # 3. Permanent Target Change: "target pushups 60", "set target squats 70"
+    m_target = re.match(r"^(?:set\s+)?target\s+([a-zA-Z\- ]+?)\s+(\d{1,4})$", text, re.IGNORECASE)
+    if m_target:
+        ex_name = m_target.group(1).strip()
+        new_target = int(m_target.group(2))
+        exercises = get_exercises()
+        matched_ex = None
+        for e in exercises:
+            if _norm(ex_name) in _norm(e["name"]) or _norm(e["name"]) in _norm(ex_name):
+                matched_ex = e
+                break
+        if matched_ex:
+            update_exercise(matched_ex["id"], target_reps=new_target)
+            workout = get_or_create_daily_workout(today)
+            today_item = next((it for it in workout["items"] if it["exercise_id"] == matched_ex["id"]), None)
+            if today_item:
+                update_today_item_target(today_item["id"], new_target)
+            intro = f"🎯 <b>Target updated!</b> Baseline for <b>{esc(matched_ex['name'])}</b> is now <b>{new_target} {esc(unit_label(matched_ex['unit']))}</b>."
+            view, markup = build_today_workout_view(get_or_create_daily_workout(today), today, intro=intro)
+            await update.message.reply_text(view, reply_markup=markup, parse_mode=HTML)
+            return True
+
+    # 4. Today's Target Only: "today pushups 80", "today target pushups 80"
+    m_today_target = re.match(r"^today\s+(?:target\s+)?([a-zA-Z\- ]+?)\s+(\d{1,4})$", text, re.IGNORECASE)
+    if m_today_target:
+        ex_name = m_today_target.group(1).strip()
+        new_target = int(m_today_target.group(2))
+        workout = get_or_create_daily_workout(today)
+        item = find_item(workout["items"], ex_name)
+        if item:
+            update_today_item_target(item["id"], new_target)
+            intro = f"🎯 <b>Today's target adjusted!</b> <b>{esc(item['exercise_name'])}</b> set to <b>{new_target} {esc(unit_label(item['unit']))}</b> for today only."
+            view, markup = build_today_workout_view(get_or_create_daily_workout(today), today, intro=intro)
+            await update.message.reply_text(view, reply_markup=markup, parse_mode=HTML)
+            return True
+
+    # 5. Add exercise on the fly: "add dips 20", "today add pull-ups 15"
+    m_add = re.match(r"^(?:today\s+)?add\s+([a-zA-Z\- ]+?)\s+(\d{1,4})(?:\s*(reps|s|sec|seconds))?$", text, re.IGNORECASE)
+    if m_add:
+        ex_name = m_add.group(1).strip()
+        target = int(m_add.group(2))
+        raw_unit = m_add.group(3) or ("sec" if "plank" in ex_name.lower() else "reps")
+        unit = "sec" if raw_unit.startswith("s") else "reps"
+        added = add_today_workout_item(ex_name, target, unit, today_str=today)
+        intro = f"➕ <b>Added to today's workout!</b> <b>{esc(added['exercise_name'])}</b> ({target} {esc(unit_label(added['unit']))})."
+        view, markup = build_today_workout_view(get_or_create_daily_workout(today), today, intro=intro)
+        await update.message.reply_text(view, reply_markup=markup, parse_mode=HTML)
+        return True
+
+    # 6. Swap exercise: "swap sit-ups for plank", "swap squats with lunges"
+    m_swap = re.match(r"^swap\s+([a-zA-Z\- ]+?)\s+(?:for|with)\s+([a-zA-Z\- ]+?)$", text, re.IGNORECASE)
+    if m_swap:
+        old_name = m_swap.group(1).strip()
+        new_name = m_swap.group(2).strip()
+        swapped = swap_today_workout_item(old_name, new_name, today_str=today)
+        if swapped:
+            intro = f"🔄 <b>Swapped!</b> Replaced with <b>{esc(swapped['exercise_name'])}</b> for today."
+            view, markup = build_today_workout_view(get_or_create_daily_workout(today), today, intro=intro)
+            await update.message.reply_text(view, reply_markup=markup, parse_mode=HTML)
+            return True
+
+    return False
+
+
+async def quick_log_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Logs typed amounts or natural commands. Returns False when text is not handled."""
+    text = (update.message.text or "").strip()
+    if not text:
+        return False
+
+    # 1. Check flexible text commands (water, pauses, targets, add, swap)
+    if await handle_flexible_commands(update, context):
+        return True
+
+    # 2. Standard quick log requires digits (e.g. 35 push-ups)
     if not re.search(r"\d", text):
         return False
+
     today = get_current_date_str()
     workout = get_or_create_daily_workout(today)
     items = [it for it in workout["items"] if it["status"] != "skipped"]
@@ -125,7 +297,16 @@ async def quick_log_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     found, unknown = parse(text, items)
     if not found:
         return False
+
+    total_before = sum(it["completed_reps"] for it in workout["items"])
+    target_before = sum(it["target_reps"] for it in workout["items"])
+    was_pending = workout["status"] == "pending"
+
     lines = _log(found)
+    hype = _calculate_hype(found, total_before, target_before, was_pending, today)
+    if hype:
+        lines.append(f"\n<b>{esc(hype)}</b>")
+
     if unknown:
         names = ", ".join(it["exercise_name"] for it in items)
         lines.append(f"🤔 Didn't get: {esc(', '.join(unknown))}. Today's exercises: {esc(names)}.")
@@ -139,11 +320,22 @@ async def quick_log_callback_handler(update: Update, context: ContextTypes.DEFAU
     query = update.callback_query
     _, item_id, value = query.data.split(":")
     today = get_current_date_str()
-    item = next((it for it in get_or_create_daily_workout(today)["items"] if it["id"] == int(item_id)), None)
+    workout = get_or_create_daily_workout(today)
+    item = next((it for it in workout["items"] if it["id"] == int(item_id)), None)
     if not item:
         await query.answer("That's not part of today's workout anymore.", show_alert=True)
         return
     await query.answer()
+
+    total_before = sum(it["completed_reps"] for it in workout["items"])
+    target_before = sum(it["target_reps"] for it in workout["items"])
+    was_pending = workout["status"] == "pending"
+
     lines = _log([(item, int(value))])
+    hype = _calculate_hype([(item, int(value))], total_before, target_before, was_pending, today)
+    if hype:
+        lines.append(f"\n<b>{esc(hype)}</b>")
+
     view, markup = build_today_workout_view(get_or_create_daily_workout(today), today, intro="\n".join(lines))
     await query.edit_message_text(view, parse_mode=HTML, reply_markup=markup)
+
