@@ -178,7 +178,11 @@ WORKOUT_TIME=07:00
 HEALTHCHECK_URL=            # optional, see "Outside alarm" below
 WEBAPP_URL=                 # optional, https address for the Mini App (see below)
 BOT_MODE=simple             # simple (default): plain workout bot · full: crew, duel, quests, Mini App
+LIFE_API_URL=               # optional: share water + workouts with Life System (see below)
+LIFE_SYNC_KEY=
 ```
+
+**Shared with Life System (optional):** set `LIFE_API_URL` (your Life System address) and `LIFE_SYNC_KEY` (the key Life System gives you) and water and workouts become one log: a glass or a set logged here shows in Life System, and water logged in the app shows in the bot's hydration check-ins. Only for you (`TELEGRAM_USER_ID`); if Life System can't be reached, the bot uses its own data as before.
 
 **Two modes:** `BOT_MODE=simple` (the default) is a plain workout bot: Today, Progress, History, Settings, and logging by just typing *35 push-ups*, *squats 50* or *plank 2 min*. `BOT_MODE=full` turns on everything on this page (crew, duel, quests, the System, the Mini App).
 

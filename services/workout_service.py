@@ -8,6 +8,7 @@ from pathlib import Path
 
 import config
 from services import activity_service
+from services import life_sync
 from database import get_connection, get_setting, set_setting, current_user_id
 
 logger = logging.getLogger(__name__)
@@ -409,7 +410,9 @@ def _record_workout_done(cursor, workout_id: int) -> None:
     """Crew live feed: tell the others this day was just finished (see crew_service).
 
     Written through `cursor` because the caller's transaction is still open.
+    Also tells Life System (in the background) so the workout counts there.
     """
+    life_sync.push_workout_done()
     now_utc = datetime.now(ZoneInfo("UTC")).isoformat()
     cursor.execute(
         "INSERT INTO crew_events (user_id, kind, data, created_at) VALUES (?, 'workout_done', ?, ?);",
@@ -513,6 +516,8 @@ def update_workout_item(
                                          new_reps - current_item["completed_reps"], day["date"])
         if current_item["unit"] == "reps":
             _check_overtake(new_reps - current_item["completed_reps"], day["date"])
+            # One shared log: these reps count in Life System's Sport Track too.
+            life_sync.push_reps(current_item["exercise_name"], new_reps - current_item["completed_reps"])
 
         # Check progression for this exercise if completed
         if new_status == "completed" and current_item["exercise_id"]:
@@ -909,6 +914,9 @@ def complete_all_exercises_for_workout(
                                              item["target_reps"] - item["completed_reps"], day["date"])
         _check_overtake(sum(max(0, it["target_reps"] - it["completed_reps"]) for it in items if it["unit"] == "reps"),
                         day["date"])
+        for item in items:
+            if item["unit"] == "reps":
+                life_sync.push_reps(item["exercise_name"], item["target_reps"] - item["completed_reps"])
 
         # Check progression for all exercises
         for item in items:

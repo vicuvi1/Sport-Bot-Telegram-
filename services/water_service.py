@@ -89,6 +89,13 @@ def log_water(
         )
         conn.commit()
 
+    # One shared log: the glass also counts in Life System (and its total is the one shown).
+    if date_str is None and db_path is None:
+        from services import life_sync
+        shared = life_sync.add_water(amount_ml)
+        if shared:
+            return _from_shared(shared, day, uid, db_path)
+
     return get_today_water(date_str=day, user_id=uid, db_path=db_path)
 
 
@@ -102,6 +109,15 @@ def get_today_water(
     from services.workout_service import get_current_date_str
 
     day = date_str or get_current_date_str(db_path=db_path)
+
+    # Today's total comes from Life System when it's connected (water logged in
+    # the app or with the Mega coach counts here too).
+    if date_str is None and db_path is None:
+        from services import life_sync
+        shared = life_sync.state()
+        if shared:
+            return _from_shared(shared, day, uid, db_path)
+
     target = get_water_target(user_id=uid, db_path=db_path)
 
     with get_connection(db_path) as conn:
@@ -143,6 +159,24 @@ def get_today_water(
     }
 
 
+def _from_shared(shared: Dict[str, Any], day: str, uid: int, db_path: Optional[Path]) -> Dict[str, Any]:
+    """The hydration status from Life System's shared log (its total and target)."""
+    water = shared.get("water") or {}
+    total_ml = max(0, int(water.get("ml") or 0))
+    target = int(water.get("target") or 0) or get_water_target(user_id=uid, db_path=db_path)
+    return {
+        "date": day,
+        "total_ml": total_ml,
+        "target_ml": target,
+        "percentage": percent(total_ml, target),
+        "glasses": round(total_ml / 250, 1),
+        "target_glasses": round(target / 250),
+        "recent_logs": [],
+        "is_completed": total_ml >= target,
+        "shared": True,
+    }
+
+
 def build_water_view(
     status: Dict[str, Any],
     intro: str = "",
@@ -171,7 +205,10 @@ def build_water_view(
         left = max(0, target - total)
         lines.append(f"<b>{left:,} ml</b> left to reach today's target.")
 
-    lines.append("<i>Calibrated for 75 kg / 186 cm active training.</i>")
+    if status.get("shared"):
+        lines.append("<i>🔗 Shared with Life System: water from the app counts here too.</i>")
+    else:
+        lines.append("<i>Calibrated for 75 kg / 186 cm active training.</i>")
     lines.append("<i>✍️ Or just type: <b>water 250</b>, <b>drink 500</b></i>")
 
     top = f"{intro}\n\n" if intro else ""
