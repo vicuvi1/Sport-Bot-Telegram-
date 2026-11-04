@@ -1,3 +1,4 @@
+import os
 import sys
 import asyncio
 import logging
@@ -304,6 +305,22 @@ async def web_app_data_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     except Exception as e:
         logger.error(f"Error handling web_app_data: {e}")
 
+async def sporty_update_callback_handler(update, context) -> None:
+    """The "Update now" button: pull the new version from GitHub and restart."""
+    query = update.callback_query
+    if query.from_user.id != config.USER_ID:
+        await query.answer()
+        return
+    await query.answer("Updating…")
+    from services import self_update
+
+    r = await asyncio.to_thread(self_update.update_and_restart, "from Telegram")
+    if r.get("ok") and not r.get("updated"):
+        await query.edit_message_text(f"✅ Sporty is already up to date ({r.get('version')}).")
+    elif r.get("ok"):
+        await query.edit_message_text(f"⬆️ Updated to {r.get('version')}. Restarting…")
+
+
 async def on_startup(application) -> None:
     """Starts the scheduler, monitoring and (with an https WEBAPP_URL) the Mini App."""
     scheduler = setup_scheduler(application.bot)
@@ -326,6 +343,14 @@ async def on_startup(application) -> None:
         threading.Thread(target=life_sync.push_history, daemon=True).start()
     except Exception as e:
         logger.warning("Life System history sync not started: %s", e)
+    # Self-update: "Update ready" message + the Update button in Life System.
+    try:
+        from services import self_update
+
+        if os.getenv("SPORTY_SELF_UPDATE", "1").strip() != "0":
+            self_update.start_watcher()
+    except Exception as e:
+        logger.warning("Self-update watcher not started: %s", e)
     await start_mini_app(application)
     await send_startup_message(application)
 
@@ -557,6 +582,8 @@ def register_handlers(app) -> None:
     # Pressed by the partner, not the owner: authorization happens inside.
     app.add_handler(CallbackQueryHandler(_timed("cheer", partner_cheer_handler, owner_only=False),
                                          pattern=CHEER_CALLBACK_PATTERN))
+    app.add_handler(CallbackQueryHandler(_timed("update", sporty_update_callback_handler),
+                                         pattern=r"^sporty_update$"))
     # Must stay the last callback handler: answers anything unclaimed above.
     app.add_handler(CallbackQueryHandler(unknown_callback_handler))
 

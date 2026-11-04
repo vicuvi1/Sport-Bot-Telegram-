@@ -58,6 +58,11 @@ def _call(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         return None
 
 
+def call_raw(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Calls Life System outside a user's update (background jobs); None when off or unreachable."""
+    return _call(payload)
+
+
 def state() -> Optional[Dict[str, Any]]:
     """Today's water and reps in Life System, or None."""
     if not enabled():
