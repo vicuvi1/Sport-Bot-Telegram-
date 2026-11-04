@@ -87,6 +87,54 @@ def push_reps(exercise_name: str, amount: int) -> None:
         _background({"op": "reps", "name": exercise_name, "amount": int(amount)})
 
 
-def push_workout_done(title: str = "Workout (Sporty)") -> None:
-    """A finished workout counts in Life System (Insights, streak, points)."""
-    _background({"op": "workout", "title": title})
+def _workout_payload(cursor, workout_id: int) -> Dict[str, Any]:
+    """A finished day as Life System wants it: its date and what was done."""
+    row = cursor.execute("SELECT date FROM daily_workouts WHERE id = ?;", (workout_id,)).fetchone()
+    items = cursor.execute(
+        "SELECT exercise_name, completed_reps FROM workout_items WHERE daily_workout_id = ? AND completed_reps > 0;",
+        (workout_id,),
+    ).fetchall()
+    day = row[0] if row else None
+    done = [{"exerciseId": str(r[0]).lower().replace(" ", "_"), "name": str(r[0]), "amount": int(r[1]), "unit": "reps"} for r in items]
+    title = "Sporty: " + ", ".join(f"{d['amount']} {d['name']}" for d in done) if done else "Workout (Sporty)"
+    return {"op": "workout", "day": day, "title": title[:80], "items": done, "source": "sporty"}
+
+
+def push_workout_done(cursor=None, workout_id: Optional[int] = None) -> None:
+    """A finished workout counts in Life System (Insights, streak, points), on its own day."""
+    payload: Dict[str, Any] = {"op": "workout", "title": "Workout (Sporty)", "source": "sporty"}
+    if cursor is not None and workout_id is not None:
+        try:
+            payload = _workout_payload(cursor, workout_id)
+        except Exception as e:  # never block the workout itself
+            logger.warning("Life System sync: could not read workout %s: %s", workout_id, e)
+    _background(payload)
+
+
+def push_history(days: int = 14) -> int:
+    """Sends every completed day of the last `days` days (Life System keeps one per day).
+
+    Runs when the bot starts, so workouts done before syncing was set up (or
+    while Life System was unreachable) are not lost. Returns how many were sent.
+    """
+    if not enabled():
+        return 0
+    from datetime import date, timedelta
+
+    from database import get_connection
+
+    since = (date.today() - timedelta(days=days)).isoformat()
+    sent = 0
+    with get_connection() as conn:
+        cur = conn.cursor()
+        rows = cur.execute(
+            "SELECT id FROM daily_workouts WHERE user_id = ? AND status = 'completed' AND date >= ? ORDER BY date;",
+            (current_user_id(), since),
+        ).fetchall()
+        payloads = [_workout_payload(cur, r[0]) for r in rows]
+    for p in payloads:
+        if _call(p):
+            sent += 1
+    if sent:
+        logger.info("Life System sync: sent %d past workout day(s)", sent)
+    return sent

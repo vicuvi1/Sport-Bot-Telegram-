@@ -412,7 +412,7 @@ def _record_workout_done(cursor, workout_id: int) -> None:
     Written through `cursor` because the caller's transaction is still open.
     Also tells Life System (in the background) so the workout counts there.
     """
-    life_sync.push_workout_done()
+    life_sync.push_workout_done(cursor, workout_id)
     now_utc = datetime.now(ZoneInfo("UTC")).isoformat()
     cursor.execute(
         "INSERT INTO crew_events (user_id, kind, data, created_at) VALUES (?, 'workout_done', ?, ?);",

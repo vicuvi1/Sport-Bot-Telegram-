@@ -317,6 +317,15 @@ async def on_startup(application) -> None:
     application.bot_data["version"] = get_version()
     application.bot_data["callbacks_received"] = 0
     _instrument_bot(application.bot)
+    # Life System sync: send the last 14 days of finished workouts (once, in the background).
+    try:
+        import threading
+
+        from services import life_sync
+
+        threading.Thread(target=life_sync.push_history, daemon=True).start()
+    except Exception as e:
+        logger.warning("Life System history sync not started: %s", e)
     await start_mini_app(application)
     await send_startup_message(application)
 

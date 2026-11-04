@@ -87,4 +87,42 @@ def test_reps_and_finished_workouts_are_pushed(monkeypatch):
     life_sync.push_reps("Push-ups", 10)
     life_sync.push_workout_done()
     life_sync.push_reps("Push-ups", 0)
-    assert [c[1] for c in calls] == [{"op": "reps", "name": "Push-ups", "amount": 10}, {"op": "workout", "title": "Workout (Sporty)"}]
+    assert [c[1] for c in calls] == [{"op": "reps", "name": "Push-ups", "amount": 10}, {"op": "workout", "title": "Workout (Sporty)", "source": "sporty"}]
+
+
+def test_finished_workout_goes_with_its_day_and_reps(monkeypatch):
+    from database import get_connection
+
+    calls = []
+    monkeypatch.setattr(life_sync.httpx, "post", fake_post(calls))
+    with get_connection() as conn:
+        cur = conn.cursor()
+        cur.execute("INSERT INTO daily_workouts (user_id, date, status, created_at) VALUES (42, '2026-11-01', 'completed', '2026-11-01T10:00:00');")
+        wid = cur.lastrowid
+        cur.execute("INSERT OR IGNORE INTO exercises (user_id, name, target_reps, unit, created_at) VALUES (42, 'Push-ups', 100, 'reps', '2026-11-01T10:00:00');")
+        ex = cur.execute("SELECT id FROM exercises WHERE user_id = 42 AND name = 'Push-ups';").fetchone()[0]
+        cur.execute(
+            "INSERT INTO workout_items (daily_workout_id, exercise_id, exercise_name, target_reps, completed_reps, status) VALUES (?, ?, 'Push-ups', 100, 100, 'completed');",
+            (wid, ex),
+        )
+        life_sync.push_workout_done(cur, wid)
+    sent = calls[-1][1]
+    assert sent["op"] == "workout" and sent["day"] == "2026-11-01" and sent["source"] == "sporty"
+    assert sent["items"] == [{"exerciseId": "push-ups", "name": "Push-ups", "amount": 100, "unit": "reps"}]
+    assert "100 Push-ups" in sent["title"]
+
+
+def test_history_sends_each_completed_day(monkeypatch):
+    from datetime import date, timedelta
+
+    from database import get_connection
+
+    calls = []
+    monkeypatch.setattr(life_sync.httpx, "post", fake_post(calls))
+    with get_connection() as conn:
+        cur = conn.cursor()
+        for i, st in [(1, "completed"), (2, "completed"), (3, "pending"), (30, "completed")]:
+            cur.execute("INSERT INTO daily_workouts (user_id, date, status, created_at) VALUES (42, ?, ?, '2026-11-01T10:00:00');", ((date.today() - timedelta(days=i)).isoformat(), st))
+        conn.commit()
+    assert life_sync.push_history(14) == 2
+    assert [c[1]["day"] for c in calls] == [(date.today() - timedelta(days=2)).isoformat(), (date.today() - timedelta(days=1)).isoformat()]
