@@ -74,6 +74,9 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
 )
+# httpx logs every request URL at INFO, and Telegram's URL contains the bot token: keep it out of journald
+for _noisy in ("httpx", "httpcore"):
+    logging.getLogger(_noisy).setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
